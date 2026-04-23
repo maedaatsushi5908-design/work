@@ -88,17 +88,17 @@
   <div class="card no-print">
     <div class="api-row">
       <label>APIキー：</label>
-      <input type="password" id="apiKey" placeholder="AIzaSy..." autocomplete="off">
+      <input type="password" id="apiKey" placeholder="sk-or-v1-..." autocomplete="off">
     </div>
-    <p class="api-hint">Google AI Studio の APIキーを入力してください（無料）。取得先：aistudio.google.com → 「Get API key」。キーはこのページ内でのみ使用し、Google APIへの直接通信にのみ使われます。</p>
+    <p class="api-hint">OpenRouter の APIキーを入力してください（無料）。取得先：openrouter.ai → サインアップ → 「Keys」。キーはこのページ内でのみ使用し、OpenRouter APIへの直接通信にのみ使われます。※ PDFは非対応。PNG / JPG / WEBP のみ。</p>
   </div>
 
   <div class="card no-print">
     <div class="drop-zone" id="dropZone">
-      <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp,.pdf">
+      <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp">
       <div class="drop-icon">📄</div>
       <div class="drop-text">ここにファイルをドラッグ＆ドロップ<br>またはクリックして選択</div>
-      <div class="drop-sub">PNG / JPG / WEBP / PDF 対応</div>
+      <div class="drop-sub">PNG / JPG / WEBP 対応</div>
       <div class="file-name" id="fileName"></div>
     </div>
 
@@ -183,9 +183,6 @@ async function analyze() {
   try {
     const b64 = await toBase64(selectedFile);
     const mime = mediaType(selectedFile);
-    const isPdf = mime === 'application/pdf';
-
-    const filePart = { inline_data: { mime_type: mime, data: b64 } };
 
     const prompt = `あなたは土木工事の三斜求積図を読み取る専門家です。
 添付の図面から以下の情報をすべて抽出してください。
@@ -199,17 +196,24 @@ async function analyze() {
 必ず以下のJSON形式のみで回答してください（説明文不要）：
 {"triangles":[{"no":1,"a":数値,"b":数値,"c":数値,"stated_area":数値}],"stated_total":数値またはnull}`;
 
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [filePart, { text: prompt }] }],
-          generationConfig: { maxOutputTokens: 2048, temperature: 0 }
-        })
-      }
-    );
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'meta-llama/llama-4-scout:free',
+        max_tokens: 2048,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -217,7 +221,7 @@ async function analyze() {
     }
 
     const data = await resp.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const text = data.choices?.[0]?.message?.content || '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('AIの応答からJSONを取得できませんでした。\n\n応答:\n' + text);
 
