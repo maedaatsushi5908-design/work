@@ -18,6 +18,11 @@
   .api-row label { white-space: nowrap; font-size: 0.9rem; font-weight: bold; }
   .api-row input { flex: 1; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; font-family: monospace; }
   .api-hint { font-size: 0.75rem; color: #888; margin-top: 6px; }
+  .model-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .model-row label { white-space: nowrap; font-size: 0.9rem; font-weight: bold; }
+  .model-row select { flex: 1; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; }
+  .btn-sm { padding: 8px 14px; background: #6c757d; color: #fff; border: none; border-radius: 4px; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+  .btn-sm:hover { background: #5a6268; }
 
   .drop-zone {
     border: 2px dashed #aaa; border-radius: 8px; padding: 40px 20px;
@@ -81,7 +86,7 @@
 <body>
 <h1>三斜求積図 自動チェックツール</h1>
 <p class="subtitle">AIが図面を読み取り、ヘロンの公式で各三角形を自動検証します</p>
-<p style="text-align:center;font-size:0.75rem;color:#aaa;">ver.4 / モデル：qwen/qwen2.5-vl-72b-instruct:free</p>
+<p style="text-align:center;font-size:0.75rem;color:#aaa;">ver.5</p>
 
 <div class="container">
 
@@ -90,7 +95,15 @@
       <label>APIキー：</label>
       <input type="password" id="apiKey" placeholder="sk-or-v1-..." autocomplete="off">
     </div>
-    <p class="api-hint">OpenRouter の APIキーを入力してください（無料）。取得先：openrouter.ai → サインアップ → 「Keys」。キーはこのページ内でのみ使用し、OpenRouter APIへの直接通信にのみ使われます。</p>
+    <p class="api-hint">OpenRouter の APIキーを入力してください（無料）。取得先：openrouter.ai → サインアップ → 「Keys」。</p>
+    <div class="model-row">
+      <label>モデル：</label>
+      <select id="modelSelect">
+        <option value="">← まずAPIキーを入力して「取得」を押してください</option>
+      </select>
+      <button class="btn-sm" onclick="fetchModels()">取得</button>
+    </div>
+    <p class="api-hint" id="modelHint"></p>
   </div>
 
   <div class="card no-print">
@@ -122,6 +135,39 @@
 </div>
 
 <script>
+async function fetchModels() {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) { alert('先にAPIキーを入力してください'); return; }
+  const hint = document.getElementById('modelHint');
+  hint.textContent = 'モデル一覧を取得中…';
+  try {
+    const resp = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    if (!resp.ok) throw new Error('APIキーが無効か、接続できませんでした');
+    const data = await resp.json();
+    const visionFree = (data.data || []).filter(m =>
+      m.id.endsWith(':free') &&
+      (m.architecture?.input_modalities || []).includes('image')
+    );
+    const select = document.getElementById('modelSelect');
+    if (visionFree.length === 0) {
+      hint.textContent = '利用可能な無料ビジョンモデルが見つかりませんでした。';
+      return;
+    }
+    select.innerHTML = '';
+    for (const m of visionFree) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.id;
+      select.appendChild(opt);
+    }
+    hint.textContent = `${visionFree.length}件の無料ビジョンモデルが見つかりました。`;
+  } catch (e) {
+    hint.textContent = 'エラー：' + e.message;
+  }
+}
+
 // PDF.js workerの設定
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -201,6 +247,8 @@ async function analyze() {
 
   if (!apiKey) { showError('APIキーを入力してください。'); return; }
   if (!selectedFile) { showError('図面ファイルを選択してください。'); return; }
+  const model = document.getElementById('modelSelect').value;
+  if (!model) { showError('「取得」ボタンを押してモデルを選択してください。'); return; }
 
   document.getElementById('analyzeBtn').disabled = true;
   document.getElementById('spinner').classList.add('show');
@@ -244,7 +292,7 @@ async function analyze() {
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'qwen/qwen2.5-vl-72b-instruct:free',
+        model: document.getElementById('modelSelect').value,
         max_tokens: 2048,
         messages: [{
           role: 'user',
