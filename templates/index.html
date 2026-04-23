@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>三斜求積図 自動チェックツール</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Meiryo', 'Yu Gothic', sans-serif; background: #f0f4f8; color: #2d3748; min-height: 100vh; padding: 24px 16px; }
+    .container { max-width: 960px; margin: 0 auto; }
+
+    h1 { font-size: 1.4rem; font-weight: 700; color: #1a365d; border-left: 5px solid #3182ce; padding-left: 12px; margin-bottom: 4px; }
+    .subtitle { font-size: 0.82rem; color: #718096; margin-bottom: 24px; padding-left: 17px; }
+
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); overflow: hidden; }
+    .card-header { background: #2b6cb0; color: #fff; padding: 10px 16px; font-size: 0.9rem; font-weight: 600; }
+    .card-body { padding: 18px; }
+
+    /* Upload area */
+    .upload-zone {
+      border: 2px dashed #a0aec0; border-radius: 8px; padding: 40px 20px;
+      text-align: center; cursor: pointer; transition: all .2s;
+    }
+    .upload-zone.drag-over { border-color: #3182ce; background: #ebf8ff; }
+    .upload-zone.has-file { border-color: #38a169; background: #f0fff4; }
+    .upload-icon { font-size: 2.5rem; margin-bottom: 10px; }
+    .upload-label { font-size: 0.9rem; color: #4a5568; }
+    .upload-sub { font-size: 0.78rem; color: #a0aec0; margin-top: 4px; }
+    #fileInput { display: none; }
+
+    .preview-name { margin-top: 12px; font-size: 0.85rem; color: #38a169; font-weight: 600; }
+
+    /* Settings row */
+    .settings-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-top: 14px; }
+    .field label { display: block; font-size: 0.75rem; color: #718096; margin-bottom: 4px; }
+    .field input { border: 1px solid #cbd5e0; border-radius: 4px; padding: 7px 10px; font-size: 0.88rem; font-family: monospace; width: 150px; }
+    .field input:focus { outline: 2px solid #3182ce; border-color: transparent; }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 5px; border: none; border-radius: 5px; padding: 9px 18px; font-size: 0.88rem; font-family: inherit; cursor: pointer; font-weight: 600; transition: opacity .15s; }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: #3182ce; color: #fff; }
+    .btn-print  { background: #ed8936; color: #fff; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Loading */
+    .loading { display: none; text-align: center; padding: 40px; color: #718096; }
+    .spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #3182ce; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Error */
+    .error-box { background: #fff5f5; border: 1.5px solid #fc8181; border-radius: 6px; padding: 14px 16px; color: #9b2c2c; font-size: 0.88rem; display: none; }
+
+    /* Results */
+    #results { display: none; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    thead th { background: #ebf4ff; color: #2b6cb0; padding: 8px 10px; text-align: center; font-weight: 600; border-bottom: 2px solid #bee3f8; white-space: nowrap; }
+    tbody td { padding: 6px 8px; text-align: center; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+    tbody tr.ok  { background: #f0fff4; }
+    tbody tr.ng  { background: #fff5f5; }
+    tbody tr.warn { background: #fffff0; }
+
+    .badge { display: inline-block; border-radius: 4px; padding: 2px 8px; font-size: 0.76rem; font-weight: 700; }
+    .badge-ok   { background: #c6f6d5; color: #276749; }
+    .badge-ng   { background: #fed7d7; color: #9b2c2c; }
+    .badge-warn { background: #fefcbf; color: #744210; }
+
+    /* Summary banner */
+    .summary { border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+    .summary.ok { background: #f0fff4; border: 2px solid #68d391; }
+    .summary.ng { background: #fff5f5; border: 2px solid #fc8181; }
+    .summary.info { background: #ebf8ff; border: 2px solid #90cdf4; }
+    .summary-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 10px; }
+    .summary-grid { display: flex; gap: 28px; flex-wrap: wrap; }
+    .sum-item .sl { font-size: 0.73rem; color: #718096; margin-bottom: 2px; }
+    .sum-item .sv { font-weight: 700; font-size: 1rem; }
+
+    /* OCR raw result */
+    .raw-box { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px 12px; font-family: monospace; font-size: 0.78rem; color: #4a5568; max-height: 120px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+
+    @media print {
+      body { background: #fff; padding: 0; }
+      .upload-zone, .settings-row, .btn, .card-header { }
+      .no-print { display: none !important; }
+      .card { box-shadow: none; border: 1px solid #999; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>三斜求積図 自動チェックツール</h1>
+  <p class="subtitle">図面（画像・PDF）をアップロードすると、AIが数値を読み取り、ヘロンの公式で自動検算します</p>
+
+  <!-- Upload card -->
+  <div class="card no-print">
+    <div class="card-header">図面のアップロード</div>
+    <div class="card-body">
+      <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <div class="upload-icon">📄</div>
+        <div class="upload-label">クリックまたはドラッグ&ドロップ</div>
+        <div class="upload-sub">PNG / JPG / WEBP / PDF（三斜求積図・計算表）</div>
+        <div class="preview-name" id="fileName"></div>
+      </div>
+      <input type="file" id="fileInput" accept="image/*,.pdf">
+
+      <div class="settings-row">
+        <div class="field">
+          <label>許容誤差 (m²)</label>
+          <input type="number" id="tolerance" value="0.005" step="0.001" min="0">
+        </div>
+        <button class="btn btn-primary" id="analyzeBtn" onclick="analyze()" disabled>🔍 AIで読み取り・検算</button>
+        <button class="btn btn-print" onclick="window.print()">🖨 印刷</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div>AIが図面を読み取っています…（数秒かかります）</div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- Results -->
+  <div id="results">
+    <!-- Summary -->
+    <div id="summaryBanner"></div>
+
+    <!-- Triangle table -->
+    <div class="card">
+      <div class="card-header" style="display:flex;justify-content:space-between;">
+        <span>三角形ごとの検算結果</span>
+        <span style="font-size:.75rem;opacity:.8;">単位: m / m²</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>No.</th>
+              <th>辺 a (m)</th>
+              <th>辺 b (m)</th>
+              <th>辺 c (m)</th>
+              <th>ヘロン計算値 (m²)</th>
+              <th>提出値 (m²)</th>
+              <th>差異 (m²)</th>
+              <th>判定</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const fileNameEl = document.getElementById('fileName');
+  let selectedFile = null;
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) setFile(fileInput.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+  });
+
+  function setFile(f) {
+    selectedFile = f;
+    fileNameEl.textContent = '✔ ' + f.name;
+    dropZone.classList.add('has-file');
+    analyzeBtn.disabled = false;
+    document.getElementById('results').style.display = 'none';
+    document.getElementById('errorBox').style.display = 'none';
+  }
+
+  function fmt(v, d=3) {
+    if (v === null || v === undefined) return '—';
+    return Number(v).toFixed(d);
+  }
+
+  async function analyze() {
+    if (!selectedFile) return;
+    analyzeBtn.disabled = true;
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('results').style.display = 'none';
+    document.getElementById('errorBox').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', selectedFile);
+    fd.append('tolerance', document.getElementById('tolerance').value);
+
+    try {
+      const res = await fetch('/analyze', { method: 'POST', body: fd });
+      const data = await res.json();
+      document.getElementById('loading').style.display = 'none';
+
+      if (data.error) {
+        const eb = document.getElementById('errorBox');
+        eb.textContent = '❌ ' + data.error + (data.raw ? '\n\nAI出力:\n' + data.raw : '');
+        eb.style.display = 'block';
+      } else {
+        renderResults(data);
+      }
+    } catch (e) {
+      document.getElementById('loading').style.display = 'none';
+      const eb = document.getElementById('errorBox');
+      eb.textContent = '❌ 通信エラー: ' + e.message;
+      eb.style.display = 'block';
+    } finally {
+      analyzeBtn.disabled = false;
+    }
+  }
+
+  function renderResults(data) {
+    // Summary banner
+    const banner = document.getElementById('summaryBanner');
+    let cls = 'info', verdict = '合計面積の提出値なし';
+    if (data.total_ok === true)  { cls = 'ok'; verdict = '✔ 合格（合計差異は許容範囲内）'; }
+    if (data.total_ok === false) { cls = 'ng'; verdict = '✖ 要確認（合計差異が許容値超過）'; }
+
+    const ngCount = data.triangles.filter(t => t.ok === false).length;
+    const okCount = data.triangles.filter(t => t.ok === true).length;
+    const naCount = data.triangles.filter(t => t.ok === null).length;
+
+    banner.innerHTML = `
+      <div class="summary ${cls}">
+        <div class="summary-title">${verdict}</div>
+        <div class="summary-grid">
+          <div class="sum-item"><div class="sl">ヘロン計算合計 (m²)</div><div class="sv">${fmt(data.calc_total)}</div></div>
+          ${ data.stated_total !== null ? `<div class="sum-item"><div class="sl">提出合計 (m²)</div><div class="sv">${fmt(data.stated_total)}</div></div>` : '' }
+          ${ data.total_diff !== null ? `<div class="sum-item"><div class="sl">差異 (m²)</div><div class="sv">${data.total_diff >= 0 ? '+' : ''}${fmt(data.total_diff)}</div></div>` : '' }
+          <div class="sum-item"><div class="sl">許容誤差 (m²)</div><div class="sv">±${fmt(data.tolerance)}</div></div>
+          <div class="sum-item"><div class="sl">三角形数</div><div class="sv">${data.triangles.length}</div></div>
+          <div class="sum-item"><div class="sl">合格 / 要確認 / データ不足</div><div class="sv">${okCount} / ${ngCount} / ${naCount}</div></div>
+        </div>
+      </div>
+    `;
+
+    // Table
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = '';
+    for (const t of data.triangles) {
+      let rowCls = '';
+      let badge = '<span class="badge badge-warn">未確認</span>';
+      if (t.error) {
+        rowCls = 'warn';
+        badge = `<span class="badge badge-warn">${t.error}</span>`;
+      } else if (t.ok === true)  { rowCls = 'ok'; badge = '<span class="badge badge-ok">合格</span>'; }
+      else if (t.ok === false)  { rowCls = 'ng'; badge = '<span class="badge badge-ng">要確認</span>'; }
+
+      const diffStr = t.diff !== null
+        ? `<span style="color:${Math.abs(t.diff) <= data.tolerance ? '#276749' : '#9b2c2c'};font-weight:600;">${t.diff >= 0 ? '+' : ''}${fmt(t.diff)}</span>`
+        : '—';
+
+      tbody.innerHTML += `
+        <tr class="${rowCls}">
+          <td>${t.no ?? '—'}</td>
+          <td>${fmt(t.a)}</td>
+          <td>${fmt(t.b)}</td>
+          <td>${fmt(t.c)}</td>
+          <td style="font-weight:600;color:#2b6cb0;">${fmt(t.calc_area)}</td>
+          <td>${fmt(t.stated_area)}</td>
+          <td>${diffStr}</td>
+          <td>${badge}</td>
+        </tr>`;
+    }
+
+    document.getElementById('results').style.display = 'block';
+  }
+</script>
+</body>
+</html>
