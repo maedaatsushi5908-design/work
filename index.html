@@ -1,593 +1,313 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>三斜求積図チェックツール</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三斜求積図 自動チェックツール</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #f5f5f5; color: #333; }
+  h1 { text-align: center; padding: 24px 0 8px; font-size: 1.4rem; }
+  .subtitle { text-align: center; color: #666; font-size: 0.85rem; margin-bottom: 24px; }
+  .container { max-width: 860px; margin: 0 auto; padding: 0 16px 40px; }
 
-    body {
-      font-family: 'Meiryo', 'Yu Gothic', sans-serif;
-      background: #f0f4f8;
-      color: #2d3748;
-      min-height: 100vh;
-      padding: 24px 16px;
-    }
+  .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
 
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-    }
+  .api-row { display: flex; gap: 8px; align-items: center; }
+  .api-row label { white-space: nowrap; font-size: 0.9rem; font-weight: bold; }
+  .api-row input { flex: 1; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; font-family: monospace; }
+  .api-hint { font-size: 0.75rem; color: #888; margin-top: 6px; }
 
-    h1 {
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: #1a365d;
-      border-left: 5px solid #3182ce;
-      padding-left: 12px;
-      margin-bottom: 6px;
-    }
+  .drop-zone {
+    border: 2px dashed #aaa; border-radius: 8px; padding: 40px 20px;
+    text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
+  }
+  .drop-zone:hover, .drop-zone.over { border-color: #4a90e2; background: #f0f6ff; }
+  .drop-zone input[type=file] { display: none; }
+  .drop-icon { font-size: 2.5rem; margin-bottom: 8px; }
+  .drop-text { font-size: 0.95rem; color: #555; }
+  .drop-sub { font-size: 0.78rem; color: #999; margin-top: 4px; }
+  .file-name { margin-top: 10px; font-size: 0.85rem; color: #4a90e2; font-weight: bold; }
 
-    .subtitle {
-      font-size: 0.82rem;
-      color: #718096;
-      margin-bottom: 24px;
-      padding-left: 17px;
-    }
+  .options-row { display: flex; align-items: center; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
+  .options-row label { font-size: 0.85rem; color: #555; }
+  .options-row input[type=number] { width: 90px; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; }
 
-    /* --- Meta info --- */
-    .meta-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 12px;
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 20px;
-    }
+  .btn {
+    display: block; width: 100%; padding: 12px;
+    background: #4a90e2; color: #fff; border: none; border-radius: 6px;
+    font-size: 1rem; font-weight: bold; cursor: pointer; transition: background .2s;
+  }
+  .btn:hover { background: #357abd; }
+  .btn:disabled { background: #aaa; cursor: not-allowed; }
 
-    .meta-field label {
-      display: block;
-      font-size: 0.75rem;
-      color: #718096;
-      margin-bottom: 4px;
-    }
+  .spinner { display: none; text-align: center; padding: 24px; }
+  .spinner.show { display: block; }
+  .spinner-ring {
+    width: 40px; height: 40px; border: 4px solid #ddd;
+    border-top-color: #4a90e2; border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin: 0 auto 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-    .meta-field input {
-      width: 100%;
-      border: 1px solid #cbd5e0;
-      border-radius: 4px;
-      padding: 6px 8px;
-      font-size: 0.88rem;
-      font-family: inherit;
-    }
+  .error-box { background: #fff0f0; border: 1px solid #f5c6cb; border-radius: 6px; padding: 14px; color: #c00; font-size: 0.9rem; margin-top: 12px; display: none; white-space: pre-wrap; }
+  .error-box.show { display: block; }
 
-    .meta-field input:focus { outline: 2px solid #3182ce; border-color: transparent; }
+  .summary {
+    border-radius: 6px; padding: 14px 18px; margin-bottom: 16px; font-size: 0.95rem;
+  }
+  .summary.ok { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+  .summary.ng { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+  .summary .big { font-size: 1.3rem; font-weight: bold; margin-bottom: 4px; }
 
-    /* --- Table card --- */
-    .card {
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      overflow: hidden;
-      margin-bottom: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,.05);
-    }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th { background: #f0f0f0; padding: 8px 10px; text-align: center; border: 1px solid #ddd; white-space: nowrap; }
+  td { padding: 7px 10px; border: 1px solid #ddd; text-align: right; }
+  td.center { text-align: center; }
+  tr.ok td { background: #f0fff4; }
+  tr.ng td { background: #fff5f5; }
+  tr.warn td { background: #fffbf0; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.78rem; font-weight: bold; }
+  .badge.ok { background: #28a745; color: #fff; }
+  .badge.ng { background: #dc3545; color: #fff; }
+  .badge.warn { background: #ffc107; color: #333; }
+  .total-row td { background: #f8f8f8; font-weight: bold; border-top: 2px solid #999; }
 
-    .card-header {
-      background: #2b6cb0;
-      color: #fff;
-      padding: 10px 16px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .unit-note { font-size: 0.75rem; opacity: .8; }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.88rem;
-    }
-
-    thead th {
-      background: #ebf4ff;
-      color: #2b6cb0;
-      padding: 8px 10px;
-      text-align: center;
-      font-weight: 600;
-      border-bottom: 2px solid #bee3f8;
-      white-space: nowrap;
-    }
-
-    tbody tr:nth-child(even) { background: #f7fafc; }
-    tbody tr:hover { background: #ebf8ff; }
-
-    tbody td {
-      padding: 4px 6px;
-      text-align: center;
-      border-bottom: 1px solid #e2e8f0;
-    }
-
-    tbody td.num { color: #718096; font-size: 0.8rem; width: 40px; }
-    tbody td.area { font-weight: 600; color: #2b6cb0; }
-    tbody td.note-cell { text-align: left; }
-
-    input.dim {
-      width: 110px;
-      border: 1px solid #cbd5e0;
-      border-radius: 4px;
-      padding: 5px 7px;
-      text-align: right;
-      font-family: 'Consolas', monospace;
-      font-size: 0.88rem;
-    }
-
-    input.dim:focus { outline: 2px solid #3182ce; border-color: transparent; }
-    input.dim.error { border-color: #fc8181; background: #fff5f5; }
-
-    input.note-input {
-      width: 100%;
-      border: 1px solid #e2e8f0;
-      border-radius: 4px;
-      padding: 5px 7px;
-      font-family: inherit;
-      font-size: 0.82rem;
-      background: transparent;
-    }
-
-    input.note-input:focus { outline: 2px solid #3182ce; border-color: transparent; background: #fff; }
-
-    .del-btn {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: #fc8181;
-      font-size: 1rem;
-      padding: 2px 6px;
-      border-radius: 4px;
-      line-height: 1;
-    }
-    .del-btn:hover { background: #fff5f5; }
-
-    tfoot td {
-      padding: 8px 10px;
-      background: #ebf4ff;
-      font-weight: 700;
-      border-top: 2px solid #bee3f8;
-    }
-
-    .total-label { text-align: right; color: #2b6cb0; }
-    .total-value { color: #1a365d; font-size: 1rem; }
-
-    /* --- Buttons --- */
-    .btn-row {
-      display: flex;
-      gap: 10px;
-      padding: 12px 14px;
-      border-top: 1px solid #e2e8f0;
-      flex-wrap: wrap;
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      border: none;
-      border-radius: 5px;
-      padding: 7px 14px;
-      font-size: 0.84rem;
-      font-family: inherit;
-      cursor: pointer;
-      font-weight: 600;
-      transition: opacity .15s;
-    }
-    .btn:hover { opacity: .85; }
-    .btn:active { opacity: .7; }
-
-    .btn-add    { background: #3182ce; color: #fff; }
-    .btn-clear  { background: #e2e8f0; color: #4a5568; }
-    .btn-save   { background: #38a169; color: #fff; }
-    .btn-load   { background: #805ad5; color: #fff; }
-    .btn-print  { background: #ed8936; color: #fff; }
-    .btn-csv    { background: #319795; color: #fff; }
-
-    /* --- Verification panel --- */
-    .verify-card {
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 18px;
-      margin-bottom: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,.05);
-    }
-
-    .verify-card h2 {
-      font-size: 0.95rem;
-      color: #2b6cb0;
-      margin-bottom: 14px;
-      border-bottom: 1px solid #bee3f8;
-      padding-bottom: 8px;
-    }
-
-    .verify-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 16px;
-      align-items: end;
-    }
-
-    .verify-field label {
-      display: block;
-      font-size: 0.78rem;
-      color: #718096;
-      margin-bottom: 5px;
-    }
-
-    .verify-field input {
-      width: 100%;
-      border: 1px solid #cbd5e0;
-      border-radius: 4px;
-      padding: 8px 10px;
-      font-size: 0.95rem;
-      font-family: 'Consolas', monospace;
-      text-align: right;
-    }
-    .verify-field input:focus { outline: 2px solid #3182ce; border-color: transparent; }
-
-    /* --- Result banner --- */
-    .result-banner {
-      margin-top: 14px;
-      border-radius: 6px;
-      padding: 12px 16px;
-      display: none;
-      font-size: 0.9rem;
-    }
-
-    .result-banner.ok {
-      background: #f0fff4;
-      border: 1.5px solid #68d391;
-      color: #276749;
-      display: flex;
-    }
-
-    .result-banner.ng {
-      background: #fff5f5;
-      border: 1.5px solid #fc8181;
-      color: #9b2c2c;
-      display: flex;
-    }
-
-    .result-banner .icon { font-size: 1.2rem; margin-right: 10px; }
-
-    .result-row { display: flex; gap: 28px; flex-wrap: wrap; }
-    .result-item { }
-    .result-item .rl { font-size: 0.73rem; opacity: .75; margin-bottom: 2px; }
-    .result-item .rv { font-weight: 700; font-size: 1rem; }
-
-    /* --- Footer --- */
-    footer {
-      text-align: center;
-      font-size: 0.75rem;
-      color: #a0aec0;
-      padding-top: 10px;
-    }
-
-    /* --- Print --- */
-    @media print {
-      body { background: #fff; padding: 0; font-size: 11pt; }
-      .btn-row, footer, .btn { display: none !important; }
-      .card, .verify-card, .meta-grid { box-shadow: none; border: 1px solid #999; }
-      .card-header { background: #888 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      thead th { background: #ddd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      input.dim, input.note-input, .meta-field input, .verify-field input {
-        border: none; background: transparent; font-size: 10pt;
-      }
-    }
-  </style>
+  @media print {
+    .no-print { display: none; }
+    body { background: #fff; }
+  }
+</style>
 </head>
 <body>
+<h1>三斜求積図 自動チェックツール</h1>
+<p class="subtitle">AIが図面を読み取り、ヘロンの公式で各三角形を自動検証します</p>
+
 <div class="container">
-  <h1>三斜求積図チェックツール</h1>
-  <p class="subtitle">工事請負業者提出の三斜求積図を検算・照合するためのツールです</p>
 
-  <!-- Meta -->
-  <div class="meta-grid">
-    <div class="meta-field">
-      <label>工事名称</label>
-      <input type="text" id="metaTitle" placeholder="例: ○○地区舗装修繕工事">
+  <div class="card no-print">
+    <div class="api-row">
+      <label>APIキー：</label>
+      <input type="password" id="apiKey" placeholder="sk-ant-api03-..." autocomplete="off">
     </div>
-    <div class="meta-field">
-      <label>業者名</label>
-      <input type="text" id="metaContractor" placeholder="例: ○○建設株式会社">
-    </div>
-    <div class="meta-field">
-      <label>図面番号 / 箇所名</label>
-      <input type="text" id="metaDrawing" placeholder="例: 求積図-1">
-    </div>
-    <div class="meta-field">
-      <label>確認日</label>
-      <input type="date" id="metaDate">
-    </div>
+    <p class="api-hint">Anthropic APIキーを入力してください。キーはこのページ内でのみ使用し、Anthropic APIへの直接通信にのみ使われます。</p>
   </div>
 
-  <!-- Triangle table -->
-  <div class="card">
-    <div class="card-header">
-      <span>三斜一覧</span>
-      <span class="unit-note">単位: m（面積: m²）</span>
+  <div class="card no-print">
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp,.pdf">
+      <div class="drop-icon">📄</div>
+      <div class="drop-text">ここにファイルをドラッグ＆ドロップ<br>またはクリックして選択</div>
+      <div class="drop-sub">PNG / JPG / WEBP / PDF 対応</div>
+      <div class="file-name" id="fileName"></div>
     </div>
-    <table id="triTable">
-      <thead>
-        <tr>
-          <th>No.</th>
-          <th>底辺 a (m)</th>
-          <th>高さ h (m)</th>
-          <th>面積 = a×h÷2 (m²)</th>
-          <th>備考</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="tbody">
-      </tbody>
-      <tfoot>
-        <tr>
-          <td colspan="3" class="total-label">合計面積</td>
-          <td class="total-value" id="totalDisplay">0.000 m²</td>
-          <td colspan="2"></td>
-        </tr>
-      </tfoot>
-    </table>
-    <div class="btn-row">
-      <button class="btn btn-add" onclick="addRow()">＋ 行を追加</button>
-      <button class="btn btn-clear" onclick="clearTable()">テーブルをクリア</button>
-      <button class="btn btn-save" onclick="saveData()">保存 (Local)</button>
-      <button class="btn btn-load" onclick="loadData()">読み込み</button>
-      <button class="btn btn-csv" onclick="exportCSV()">CSV出力</button>
-      <button class="btn btn-print" onclick="window.print()">印刷</button>
+
+    <div class="options-row">
+      <label>許容誤差：</label>
+      <input type="number" id="tolerance" value="0.005" step="0.001" min="0">
+      <label>m²</label>
     </div>
+
+    <br>
+    <button class="btn" id="analyzeBtn" onclick="analyze()">図面を解析する</button>
   </div>
 
-  <!-- Verification -->
-  <div class="verify-card">
-    <h2>照合・検算</h2>
-    <div class="verify-grid">
-      <div class="verify-field">
-        <label>業者提出の合計面積 (m²)</label>
-        <input type="number" id="submittedTotal" placeholder="0.000" step="0.001" oninput="verify()">
-      </div>
-      <div class="verify-field">
-        <label>許容誤差 (m²)　※ 空欄 = 0</label>
-        <input type="number" id="tolerance" placeholder="0.001" step="0.001" value="0.001" oninput="verify()">
-      </div>
-      <div class="verify-field">
-        <label>算出合計面積 (m²)</label>
-        <input type="text" id="calcDisplay" readonly style="background:#f7fafc; color:#2b6cb0; font-weight:700;" value="―">
-      </div>
-    </div>
-
-    <div class="result-banner" id="resultBanner">
-      <span class="icon" id="resultIcon"></span>
-      <div>
-        <div class="result-row" id="resultRow"></div>
-      </div>
-    </div>
+  <div class="spinner" id="spinner">
+    <div class="spinner-ring"></div>
+    <div>AIが図面を読み取り中…（数十秒かかる場合があります）</div>
   </div>
 
-  <footer>三斜求積図チェックツール &mdash; ローカルで動作します（データは外部に送信されません）</footer>
+  <div class="error-box" id="errorBox"></div>
+  <div id="results"></div>
 </div>
 
 <script>
-  let total = 0;
+let selectedFile = null;
 
-  function fmt(v) {
-    return isNaN(v) ? '―' : v.toFixed(3);
-  }
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
 
-  function addRow(base, height, note) {
-    const tbody = document.getElementById('tbody');
-    const tr = document.createElement('tr');
-    const rowNum = tbody.rows.length + 1;
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('over');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) setFile(fileInput.files[0]);
+});
 
-    tr.innerHTML = `
-      <td class="num">${rowNum}</td>
-      <td><input class="dim" type="number" step="0.001" min="0" placeholder="0.000"
-            value="${base !== undefined ? base : ''}"
-            oninput="recalcRow(this)" onchange="recalcRow(this)"></td>
-      <td><input class="dim" type="number" step="0.001" min="0" placeholder="0.000"
-            value="${height !== undefined ? height : ''}"
-            oninput="recalcRow(this)" onchange="recalcRow(this)"></td>
-      <td class="area" id="area_${rowNum}">―</td>
-      <td class="note-cell"><input class="note-input" type="text" placeholder="メモ"
-            value="${note !== undefined ? note : ''}"></td>
-      <td><button class="del-btn" onclick="delRow(this)" title="この行を削除">&#x2715;</button></td>
-    `;
-    tbody.appendChild(tr);
-    recalcAll();
-    tr.querySelector('input.dim').focus();
-  }
+function setFile(f) {
+  selectedFile = f;
+  document.getElementById('fileName').textContent = '選択済み：' + f.name;
+}
 
-  function recalcRow(input) {
-    const td = input.closest('tr');
-    recalcAll();
-  }
+function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
 
-  function recalcAll() {
-    const tbody = document.getElementById('tbody');
-    const rows = tbody.rows;
-    total = 0;
-    let hasError = false;
+function mediaType(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const map = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf' };
+  return map[ext] || file.type;
+}
 
-    for (let i = 0; i < rows.length; i++) {
-      const inputs = rows[i].querySelectorAll('input.dim');
-      const aCell = rows[i].querySelector('td.area');
-      const a = parseFloat(inputs[0].value);
-      const h = parseFloat(inputs[1].value);
+function heron(a, b, c) {
+  if (a <= 0 || b <= 0 || c <= 0) return null;
+  if (a + b <= c || a + c <= b || b + c <= a) return null;
+  const s = (a + b + c) / 2;
+  const val = s * (s - a) * (s - b) * (s - c);
+  return val >= 0 ? Math.sqrt(val) : null;
+}
 
-      inputs[0].classList.remove('error');
-      inputs[1].classList.remove('error');
+async function analyze() {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const tolerance = parseFloat(document.getElementById('tolerance').value) || 0.005;
+  const errorBox = document.getElementById('errorBox');
+  errorBox.classList.remove('show');
 
-      if (inputs[0].value !== '' && a < 0) { inputs[0].classList.add('error'); hasError = true; }
-      if (inputs[1].value !== '' && h < 0) { inputs[1].classList.add('error'); hasError = true; }
+  if (!apiKey) { showError('APIキーを入力してください。'); return; }
+  if (!selectedFile) { showError('図面ファイルを選択してください。'); return; }
 
-      if (!isNaN(a) && !isNaN(h) && inputs[0].value !== '' && inputs[1].value !== '') {
-        const area = a * h / 2;
-        aCell.textContent = fmt(area);
-        total += area;
-      } else {
-        aCell.textContent = '―';
-      }
-    }
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('spinner').classList.add('show');
+  document.getElementById('results').innerHTML = '';
 
-    document.getElementById('totalDisplay').textContent = fmt(total) + ' m²';
-    document.getElementById('calcDisplay').value = fmt(total);
-    verify();
-  }
+  try {
+    const b64 = await toBase64(selectedFile);
+    const mime = mediaType(selectedFile);
+    const isPdf = mime === 'application/pdf';
 
-  function delRow(btn) {
-    const tr = btn.closest('tr');
-    tr.remove();
-    renumber();
-    recalcAll();
-  }
+    const contentBlock = isPdf
+      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+      : { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } };
 
-  function renumber() {
-    const rows = document.getElementById('tbody').rows;
-    for (let i = 0; i < rows.length; i++) {
-      rows[i].querySelector('td.num').textContent = i + 1;
-    }
-  }
+    const prompt = `あなたは土木工事の三斜求積図を読み取る専門家です。
+添付の図面から以下の情報をすべて抽出してください。
 
-  function clearTable() {
-    if (!confirm('テーブルの全データをクリアしますか？')) return;
-    document.getElementById('tbody').innerHTML = '';
-    recalcAll();
-  }
+抽出ルール：
+- 計算表または図中の各三角形について、三辺の寸法（a, b, c）と記載面積（stated_area）を読み取る
+- 面積の単位はm²、辺の単位はm
+- 三角形の番号（no）は図面記載のものを使用。なければ1から連番
+- stated_totalは計算表の合計面積（記載がない場合はnull）
 
-  function verify() {
-    const banner = document.getElementById('resultBanner');
-    const submittedInput = document.getElementById('submittedTotal');
-    const submitted = parseFloat(submittedInput.value);
-    const tolerance = parseFloat(document.getElementById('tolerance').value) || 0;
+必ず以下のJSON形式のみで回答してください（説明文不要）：
+{"triangles":[{"no":1,"a":数値,"b":数値,"c":数値,"stated_area":数値}],"stated_total":数値またはnull}`;
 
-    if (isNaN(submitted) || submittedInput.value.trim() === '') {
-      banner.className = 'result-banner';
-      return;
-    }
-
-    const diff = total - submitted;
-    const absDiff = Math.abs(diff);
-    const ok = absDiff <= tolerance;
-    const pct = submitted !== 0 ? (absDiff / Math.abs(submitted) * 100) : 0;
-
-    banner.className = 'result-banner ' + (ok ? 'ok' : 'ng');
-    document.getElementById('resultIcon').textContent = ok ? '✔' : '✖';
-
-    document.getElementById('resultRow').innerHTML = `
-      <div class="result-item"><div class="rl">算出合計 (m²)</div><div class="rv">${fmt(total)}</div></div>
-      <div class="result-item"><div class="rl">提出値 (m²)</div><div class="rv">${fmt(submitted)}</div></div>
-      <div class="result-item"><div class="rl">差異 (m²)</div><div class="rv">${diff >= 0 ? '+' : ''}${fmt(diff)}</div></div>
-      <div class="result-item"><div class="rl">差異率 (%)</div><div class="rv">${pct.toFixed(3)} %</div></div>
-      <div class="result-item" style="margin-left:auto;"><div class="rl">判定</div>
-        <div class="rv" style="font-size:1.1rem">${ok ? '合格（差異は許容範囲内）' : '要確認（差異が許容値超過）'}</div>
-      </div>
-    `;
-  }
-
-  /* --- Persistence --- */
-  function collectData() {
-    const tbody = document.getElementById('tbody');
-    const rows = [];
-    for (const tr of tbody.rows) {
-      const inputs = tr.querySelectorAll('input.dim');
-      const note = tr.querySelector('input.note-input');
-      rows.push({
-        base: inputs[0].value,
-        height: inputs[1].value,
-        note: note ? note.value : ''
-      });
-    }
-    return {
-      meta: {
-        title: document.getElementById('metaTitle').value,
-        contractor: document.getElementById('metaContractor').value,
-        drawing: document.getElementById('metaDrawing').value,
-        date: document.getElementById('metaDate').value
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
-      rows,
-      submitted: document.getElementById('submittedTotal').value,
-      tolerance: document.getElementById('tolerance').value
-    };
-  }
-
-  function saveData() {
-    const data = collectData();
-    localStorage.setItem('sankakuData', JSON.stringify(data));
-    alert('保存しました（このブラウザのLocalStorageに保存されます）');
-  }
-
-  function loadData() {
-    const raw = localStorage.getItem('sankakuData');
-    if (!raw) { alert('保存データが見つかりません。'); return; }
-    if (!confirm('保存データを読み込みますか？（現在の内容は上書きされます）')) return;
-    applyData(JSON.parse(raw));
-  }
-
-  function applyData(data) {
-    document.getElementById('metaTitle').value = data.meta?.title || '';
-    document.getElementById('metaContractor').value = data.meta?.contractor || '';
-    document.getElementById('metaDrawing').value = data.meta?.drawing || '';
-    document.getElementById('metaDate').value = data.meta?.date || '';
-    document.getElementById('submittedTotal').value = data.submitted || '';
-    document.getElementById('tolerance').value = data.tolerance ?? '0.001';
-    document.getElementById('tbody').innerHTML = '';
-    for (const r of (data.rows || [])) {
-      addRow(r.base, r.height, r.note);
-    }
-    recalcAll();
-  }
-
-  /* --- CSV export --- */
-  function exportCSV() {
-    const data = collectData();
-    const lines = [
-      ['工事名称', data.meta.title],
-      ['業者名', data.meta.contractor],
-      ['図面番号', data.meta.drawing],
-      ['確認日', data.meta.date],
-      [],
-      ['No.', '底辺 a (m)', '高さ h (m)', '面積 (m²)', '備考']
-    ];
-    data.rows.forEach((r, i) => {
-      const a = parseFloat(r.base);
-      const h = parseFloat(r.height);
-      const area = (!isNaN(a) && !isNaN(h)) ? (a * h / 2).toFixed(3) : '';
-      lines.push([i + 1, r.base, r.height, area, r.note]);
+      body: JSON.stringify({
+        model: 'claude-opus-4-7',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }]
+      })
     });
-    lines.push([]);
-    lines.push(['算出合計 (m²)', fmt(total)]);
-    lines.push(['提出値 (m²)', data.submitted]);
-    const diff = total - parseFloat(data.submitted);
-    lines.push(['差異 (m²)', isNaN(diff) ? '' : fmt(diff)]);
 
-    const csv = lines.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
-    const bom = '﻿';
-    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `三斜求積チェック_${data.meta.drawing || 'output'}.csv`;
-    a.click();
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || 'APIエラー: ' + resp.status);
+    }
+
+    const data = await resp.json();
+    const text = data.content?.[0]?.text || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('AIの応答からJSONを取得できませんでした。\n\n応答:\n' + text);
+
+    renderResults(JSON.parse(jsonMatch[0]), tolerance);
+
+  } catch (e) {
+    showError(e.message || String(e));
+  } finally {
+    document.getElementById('analyzeBtn').disabled = false;
+    document.getElementById('spinner').classList.remove('show');
+  }
+}
+
+function renderResults(parsed, tolerance) {
+  const triangles = parsed.triangles || [];
+  const statedTotal = parsed.stated_total != null ? parseFloat(parsed.stated_total) : null;
+
+  let calcTotal = 0;
+  let allOk = true;
+  const rows = [];
+
+  for (const t of triangles) {
+    const a = parseFloat(t.a), b = parseFloat(t.b), c = parseFloat(t.c);
+    const stated = parseFloat(t.stated_area);
+    const calc = heron(a, b, c);
+
+    if (calc === null) {
+      rows.push({ no: t.no, a, b, c, stated, calc: null, diff: null, status: 'warn' });
+      allOk = false;
+      continue;
+    }
+
+    calcTotal += calc;
+    const diff = Math.abs(calc - stated);
+    const ok = diff <= tolerance;
+    if (!ok) allOk = false;
+    rows.push({ no: t.no, a, b, c, stated, calc, diff, status: ok ? 'ok' : 'ng' });
   }
 
-  /* --- Init --- */
-  document.getElementById('metaDate').value = new Date().toISOString().slice(0, 10);
-  // Start with 5 empty rows
-  for (let i = 0; i < 5; i++) addRow();
+  const totalDiff = statedTotal !== null ? Math.abs(calcTotal - statedTotal) : null;
+  const totalOk = totalDiff === null || totalDiff <= tolerance;
+  const overallOk = allOk && totalOk;
+
+  let html = `<div class="summary ${overallOk ? 'ok' : 'ng'}">
+    <div class="big">${overallOk ? '✅ 合格' : '❌ 要確認'}</div>
+    <div>計算合計：${calcTotal.toFixed(4)} m²　記載合計：${statedTotal !== null ? statedTotal.toFixed(4) + ' m²' : '－'}${totalDiff !== null ? '　差：' + totalDiff.toFixed(4) + ' m²' : ''}</div>
+    <div style="font-size:0.8rem;margin-top:4px;">許容誤差：±${tolerance} m²　／　三角形数：${triangles.length}</div>
+  </div>
+  <div class="card">
+  <table>
+    <thead><tr>
+      <th>No.</th><th>辺a (m)</th><th>辺b (m)</th><th>辺c (m)</th>
+      <th>記載面積 (m²)</th><th>計算面積 (m²)</th><th>差 (m²)</th><th>判定</th>
+    </tr></thead><tbody>`;
+
+  for (const r of rows) {
+    const lbl = r.status === 'ok' ? '合格' : r.status === 'ng' ? '要確認' : '警告';
+    html += `<tr class="${r.status}">
+      <td class="center">${r.no}</td>
+      <td>${!isNaN(r.a) ? r.a.toFixed(3) : '－'}</td>
+      <td>${!isNaN(r.b) ? r.b.toFixed(3) : '－'}</td>
+      <td>${!isNaN(r.c) ? r.c.toFixed(3) : '－'}</td>
+      <td>${!isNaN(r.stated) ? r.stated.toFixed(4) : '－'}</td>
+      <td>${r.calc !== null ? r.calc.toFixed(4) : '計算不可'}</td>
+      <td>${r.diff !== null ? r.diff.toFixed(4) : '－'}</td>
+      <td class="center"><span class="badge ${r.status}">${lbl}</span></td>
+    </tr>`;
+  }
+
+  html += `<tr class="total-row">
+    <td class="center" colspan="4">合計</td>
+    <td>${statedTotal !== null ? statedTotal.toFixed(4) : '－'}</td>
+    <td>${calcTotal.toFixed(4)}</td>
+    <td>${totalDiff !== null ? totalDiff.toFixed(4) : '－'}</td>
+    <td class="center"><span class="badge ${totalOk ? 'ok' : 'ng'}">${totalOk ? '合格' : '要確認'}</span></td>
+  </tr></tbody></table></div>`;
+
+  document.getElementById('results').innerHTML = html;
+}
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = 'エラー：' + msg;
+  box.classList.add('show');
+}
 </script>
 </body>
 </html>
