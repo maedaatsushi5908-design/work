@@ -88,9 +88,9 @@
   <div class="card no-print">
     <div class="api-row">
       <label>APIキー：</label>
-      <input type="password" id="apiKey" placeholder="sk-ant-api03-..." autocomplete="off">
+      <input type="password" id="apiKey" placeholder="AIzaSy..." autocomplete="off">
     </div>
-    <p class="api-hint">Anthropic APIキーを入力してください。キーはこのページ内でのみ使用し、Anthropic APIへの直接通信にのみ使われます。</p>
+    <p class="api-hint">Google AI Studio の APIキーを入力してください（無料）。取得先：aistudio.google.com → 「Get API key」。キーはこのページ内でのみ使用し、Google APIへの直接通信にのみ使われます。</p>
   </div>
 
   <div class="card no-print">
@@ -185,9 +185,7 @@ async function analyze() {
     const mime = mediaType(selectedFile);
     const isPdf = mime === 'application/pdf';
 
-    const contentBlock = isPdf
-      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
-      : { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } };
+    const filePart = { inline_data: { mime_type: mime, data: b64 } };
 
     const prompt = `あなたは土木工事の三斜求積図を読み取る専門家です。
 添付の図面から以下の情報をすべて抽出してください。
@@ -201,20 +199,17 @@ async function analyze() {
 必ず以下のJSON形式のみで回答してください（説明文不要）：
 {"triangles":[{"no":1,"a":数値,"b":数値,"c":数値,"stated_area":数値}],"stated_total":数値またはnull}`;
 
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-7',
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }]
-      })
-    });
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [filePart, { text: prompt }] }],
+          generationConfig: { maxOutputTokens: 2048, temperature: 0 }
+        })
+      }
+    );
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -222,7 +217,7 @@ async function analyze() {
     }
 
     const data = await resp.json();
-    const text = data.content?.[0]?.text || '';
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('AIの応答からJSONを取得できませんでした。\n\n応答:\n' + text);
 
