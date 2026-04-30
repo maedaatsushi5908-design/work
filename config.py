@@ -9,14 +9,14 @@ from typing import List
 @dataclass
 class StrategyConfig:
     # 新高値の判定期間（営業日）
-    # 52週 = 約260営業日、13週 = 約65営業日
-    high_period: int = 260
+    # 39週 = 約195営業日（最適化により260→195に変更）
+    high_period: int = 195
 
     # 損切りライン（エントリー価格からの下落率）
-    stop_loss_pct: float = -0.08  # -8%
+    stop_loss_pct: float = -0.10  # -10%
 
     # トレーリングストップ（高値からの下落率）
-    trailing_stop_pct: float = -0.15  # -15%
+    trailing_stop_pct: float = -0.20  # -20%
 
     # 最大保有銘柄数
     max_positions: int = 5

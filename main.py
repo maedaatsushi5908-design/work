@@ -27,17 +27,19 @@ from report import print_summary, plot_equity_curve, plot_trade_distribution, pl
 
 
 def parse_args():
+    _defaults = StrategyConfig()
+    _bt_defaults = BacktestConfig()
     parser = argparse.ArgumentParser(
         description="kenmo氏の新高値ブレイク投資法 バックテスト",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--start", default="2015-01-01", help="バックテスト開始日")
-    parser.add_argument("--end", default="2024-12-31", help="バックテスト終了日")
-    parser.add_argument("--capital", type=float, default=1_000_000, help="初期資金（円）")
-    parser.add_argument("--high-period", type=int, default=260, help="新高値判定期間（営業日）")
-    parser.add_argument("--stop-loss", type=float, default=-0.08, help="損切りライン（例: -0.08）")
-    parser.add_argument("--trailing", type=float, default=-0.15, help="トレーリングストップ（例: -0.15）")
-    parser.add_argument("--max-pos", type=int, default=5, help="最大保有銘柄数")
+    parser.add_argument("--start", default=_bt_defaults.start_date, help="バックテスト開始日")
+    parser.add_argument("--end", default=_bt_defaults.end_date, help="バックテスト終了日")
+    parser.add_argument("--capital", type=float, default=_bt_defaults.initial_capital, help="初期資金（円）")
+    parser.add_argument("--high-period", type=int, default=_defaults.high_period, help="新高値判定期間（営業日）")
+    parser.add_argument("--stop-loss", type=float, default=_defaults.stop_loss_pct, help="損切りライン（例: -0.08）")
+    parser.add_argument("--trailing", type=float, default=_defaults.trailing_stop_pct, help="トレーリングストップ（例: -0.15）")
+    parser.add_argument("--max-pos", type=int, default=_defaults.max_positions, help="最大保有銘柄数")
     parser.add_argument("--no-cache", action="store_true", help="キャッシュを使わない")
     parser.add_argument("--show", action="store_true", help="グラフを画面表示する")
     parser.add_argument("--tickers", nargs="+", default=None, help="対象ティッカー")
