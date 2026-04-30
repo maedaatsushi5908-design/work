@@ -1,0 +1,8 @@
+# 秘密情報（絶対にコミットしない）
+.env
+
+__pycache__/
+*.pyc
+*.pkl
+cache/
+output/
