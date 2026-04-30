@@ -25,10 +25,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Windows では stdout を UTF-8 に切り替えて絵文字を表示できるようにする
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import pandas as pd
 

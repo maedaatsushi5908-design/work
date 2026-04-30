@@ -14,11 +14,10 @@ from __future__ import annotations
 
 import os
 import smtplib
-import urllib.request
-import urllib.parse
-import json as _json
 from email.mime.text import MIMEText
 from typing import Optional
+
+import requests
 
 
 def _env(key: str) -> Optional[str]:
@@ -26,11 +25,9 @@ def _env(key: str) -> Optional[str]:
 
 
 def _post_json(url: str, payload: dict, headers: dict = {}) -> bool:
-    data = _json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **headers})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status < 300
+        resp = requests.post(url, json=payload, headers=headers, timeout=10)
+        return resp.status_code < 300
     except Exception as e:
         print(f"  通知失敗: {e}")
         return False

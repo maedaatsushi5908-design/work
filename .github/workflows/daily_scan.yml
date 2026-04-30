@@ -1,9 +1,9 @@
 name: kenmo デイリースキャン
 
 on:
-  # 毎朝8:00 JST (UTC 23:00 = 前日) に自動実行
+  # 毎朝7:48 JST (UTC 22:48 = 前日) に自動実行
   schedule:
-    - cron: '0 23 * * 0-4'   # 日〜木 23:00 UTC = 月〜金 8:00 JST
+    - cron: '48 22 * * 0-4'   # 日〜木 22:48 UTC = 月〜金 7:48 JST
   # 手動実行ボタンも有効化
   workflow_dispatch:
 
