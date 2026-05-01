@@ -1,5 +1,75 @@
 # Claude への引き継ぎメモ
 
+---
+
+## 【最新セッション】爆サイ掲示板スクレイパー（2026-05-01）
+
+### 何をしたか
+
+爆サイ（bakusai.com）の掲示板を一括取得してAIに読ませるスクレイパーを作成した。
+
+- ファイル: `bakusai_scraper.py`
+- ブランチ: `claude/bulletin-board-scraper-KolsA`（push済み）
+
+### ローカルで動かすための手順
+
+```bash
+# 1. リポジトリをクローン（初回のみ）
+git clone https://github.com/maedaatsushi5908-design/work
+cd work
+
+# 2. ブランチを切り替える
+git checkout claude/bulletin-board-scraper-KolsA
+
+# 3. 依存パッケージをインストール
+pip install -r requirements.txt
+# ← beautifulsoup4 と requests が必要（requirements.txtに記載済み）
+
+# 4. 実行
+python bakusai_scraper.py "板のURL" --threads 10 --pages 3 --merge
+```
+
+### 板URLの調べ方
+
+1. ブラウザで `https://bakusai.com` を開く
+2. 気になる板名をクリック
+3. アドレスバーのURLをコピーしてそのまま使う
+
+例：
+```bash
+# 特定の板（URLはブラウザで確認）
+python bakusai_scraper.py "https://bakusai.com/bbs_list/c27/" --threads 5 --pages 3 --merge
+```
+
+### 出力ファイル
+
+```
+output/
+├── 板名_スレタイ.txt        ← スレッドごとのテキスト
+└── merged_for_ai.txt        ← 全スレッドまとめ（--merge指定時）
+```
+
+`merged_for_ai.txt` をClaudeやChatGPTに貼り付ければそのまま分析できる。
+
+### オプション一覧
+
+| オプション | デフォルト | 意味 |
+|-----------|-----------|------|
+| `--threads` | 10 | 取得するスレッド数 |
+| `--pages` | 3 | スレッドあたりのページ数 |
+| `--output` | output | 保存先ディレクトリ |
+| `--format` | text | `text` or `json` |
+| `--merge` | なし | 全テキストを1ファイルにまとめる |
+
+### 注意点・既知の問題
+
+- 爆サイはBot対策が強いため、403エラーが出る場合がある
+- その際は Selenium（ブラウザ自動化）への切り替えが必要 → 必要なら次のセッションで対応
+- リクエスト間隔はデフォルト2秒（サーバー負荷軽減のため変えないこと）
+
+---
+
+
 ## このプロジェクトの概要
 
 kenmo氏の「新高値ブレイク投資法」を自動化するPythonプログラムです。
