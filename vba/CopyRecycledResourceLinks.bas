@@ -16,21 +16,35 @@ Sub CopyRecycledResourceLinks()
                       "構造物とりこわし", "床掘", "土砂等運搬")
 
     Dim wb As Workbook
-    Set wb = ThisWorkbook
+    Set wb = ActiveWorkbook
 
     Dim wsSrc As Worksheet
-    On Error Resume Next
-    Set wsSrc = wb.Worksheets(SRC_SHEET_NAME)
-    On Error GoTo 0
+    Dim ws As Worksheet
+    For Each ws In wb.Worksheets
+        If Trim(ws.Name) = SRC_SHEET_NAME Then
+            Set wsSrc = ws
+            Exit For
+        End If
+    Next ws
+
     If wsSrc Is Nothing Then
-        MsgBox "シート「" & SRC_SHEET_NAME & "」が見つかりません。処理を中止します。", vbExclamation
+        Dim sheetList As String
+        For Each ws In wb.Worksheets
+            sheetList = sheetList & "・" & ws.Name & vbCrLf
+        Next ws
+        MsgBox "シート「" & SRC_SHEET_NAME & "」が見つかりません。処理を中止します。" & vbCrLf & vbCrLf & _
+               "「" & wb.Name & "」ブック内の実際のシート名:" & vbCrLf & sheetList, vbExclamation
         Exit Sub
     End If
 
     Dim wsDest As Worksheet
-    On Error Resume Next
-    Set wsDest = wb.Worksheets(DEST_SHEET_NAME)
-    On Error GoTo 0
+    For Each ws In wb.Worksheets
+        If Trim(ws.Name) = DEST_SHEET_NAME Then
+            Set wsDest = ws
+            Exit For
+        End If
+    Next ws
+
     If wsDest Is Nothing Then
         Set wsDest = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
         wsDest.Name = DEST_SHEET_NAME
