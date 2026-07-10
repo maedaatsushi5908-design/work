@@ -52,9 +52,12 @@ Sub CopyRecycledResourceLinks()
         wsDest.Name = DEST_SHEET_NAME
     End If
 
-    ' ２行目から「施工単価名称」列を検索
+    ' １行目・２行目のうち、より右まで使われている方に合わせて列数を決定
     Dim lastColSrc As Long
+    Dim lastColRow1 As Long
+    lastColRow1 = wsSrc.Cells(1, wsSrc.Columns.Count).End(xlToLeft).Column
     lastColSrc = wsSrc.Cells(HEADER_ROW, wsSrc.Columns.Count).End(xlToLeft).Column
+    If lastColRow1 > lastColSrc Then lastColSrc = lastColRow1
 
     Dim targetCol As Long
     targetCol = 0
@@ -76,16 +79,17 @@ Sub CopyRecycledResourceLinks()
     ' 出力先を初期化
     wsDest.Cells.Clear
 
-    ' ヘッダー行（２行目）を数式リンクでコピー
+    ' １行目・２行目（見出し）を数式リンクでコピー
     For c = 1 To lastColSrc
-        wsDest.Cells(1, c).Formula = "='" & SRC_SHEET_NAME & "'!" & wsSrc.Cells(HEADER_ROW, c).Address
+        wsDest.Cells(1, c).Formula = "='" & SRC_SHEET_NAME & "'!" & wsSrc.Cells(1, c).Address
+        wsDest.Cells(2, c).Formula = "='" & SRC_SHEET_NAME & "'!" & wsSrc.Cells(HEADER_ROW, c).Address
     Next c
 
     Dim lastRowSrc As Long
     lastRowSrc = wsSrc.Cells(wsSrc.Rows.Count, targetCol).End(xlUp).Row
 
     Dim outRow As Long
-    outRow = 2
+    outRow = 3
 
     Dim r As Long, i As Long
     Dim cellText As String
@@ -115,6 +119,6 @@ Sub CopyRecycledResourceLinks()
 
     wsDest.Columns.AutoFit
 
-    MsgBox (outRow - 2) & " 件の行を「" & DEST_SHEET_NAME & "」シートにリンク（数式）でコピーしました。", vbInformation
+    MsgBox (outRow - 3) & " 件の行を「" & DEST_SHEET_NAME & "」シートにリンク（数式）でコピーしました。", vbInformation
 
 End Sub
