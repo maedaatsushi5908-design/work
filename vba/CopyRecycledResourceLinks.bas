@@ -127,8 +127,8 @@ Sub CopyRecycledResourceLinks()
        Len(Trim(CStr(wsDest.Cells(2, extraCol).Value))) = 0 Then
 
         Dim extraHeaders(1 To 18, 1 To 2) As String
-        extraHeaders(1, 1) = "単位Co量(m3/施工単位)": extraHeaders(1, 2) = ""
-        extraHeaders(2, 1) = "Co量(m3)": extraHeaders(2, 2) = ""
+        extraHeaders(1, 1) = "": extraHeaders(1, 2) = "単位Co量(m3/施工単位)"
+        extraHeaders(2, 1) = "": extraHeaders(2, 2) = "Co量(m3)"
         extraHeaders(3, 1) = "粗粒度": extraHeaders(3, 2) = "単位As量(t/m2)"
         extraHeaders(4, 1) = "": extraHeaders(4, 2) = "As量(t)"
         extraHeaders(5, 1) = "密粒度": extraHeaders(5, 2) = "単位As量(t/m2)"
@@ -143,8 +143,8 @@ Sub CopyRecycledResourceLinks()
         extraHeaders(14, 1) = "": extraHeaders(14, 2) = "砕石量(m3/m2)"
         extraHeaders(15, 1) = "粒調砕石": extraHeaders(15, 2) = "単位粒調砕石量(m3/m2)"
         extraHeaders(16, 1) = "": extraHeaders(16, 2) = "粒調砕石量(m3/m2)"
-        extraHeaders(17, 1) = "掘削土量(m3)": extraHeaders(17, 2) = ""
-        extraHeaders(18, 1) = "処分土量(m3)": extraHeaders(18, 2) = ""
+        extraHeaders(17, 1) = "": extraHeaders(17, 2) = "掘削土量(m3)"
+        extraHeaders(18, 1) = "": extraHeaders(18, 2) = "処分土量(m3)"
 
         For i = 1 To 18
             If Len(extraHeaders(i, 1)) > 0 Then wsDest.Cells(1, extraCol + i - 1).Value = extraHeaders(i, 1)
