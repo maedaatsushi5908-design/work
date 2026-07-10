@@ -76,8 +76,9 @@ Sub CopyRecycledResourceLinks()
         Exit Sub
     End If
 
-    ' 出力先を初期化
-    wsDest.Cells.Clear
+    ' 出力先を初期化（元データを貼り直す範囲のみクリアし、
+    ' 右側に追記した集計用見出し・手入力データは消さない）
+    wsDest.Range(wsDest.Columns(1), wsDest.Columns(lastColSrc)).Clear
 
     ' １行目・２行目（見出し）を数式リンクでコピー
     For c = 1 To lastColSrc
@@ -118,32 +119,38 @@ Sub CopyRecycledResourceLinks()
     Next r
 
     ' データ列の右端の次から、材料数量集計用の見出しを追記
-    Dim extraHeaders(1 To 18, 1 To 2) As String
-    extraHeaders(1, 1) = "単位Co量(m3/施工単位)": extraHeaders(1, 2) = ""
-    extraHeaders(2, 1) = "Co量(m3)": extraHeaders(2, 2) = ""
-    extraHeaders(3, 1) = "粗粒度": extraHeaders(3, 2) = "単位As量(t/m2)"
-    extraHeaders(4, 1) = "": extraHeaders(4, 2) = "As量(t)"
-    extraHeaders(5, 1) = "密粒度": extraHeaders(5, 2) = "単位As量(t/m2)"
-    extraHeaders(6, 1) = "": extraHeaders(6, 2) = "As量(t)"
-    extraHeaders(7, 1) = "細粒度": extraHeaders(7, 2) = "単位As量(t/m2)"
-    extraHeaders(8, 1) = "": extraHeaders(8, 2) = "As量(t)"
-    extraHeaders(9, 1) = "開粒度": extraHeaders(9, 2) = "単位As量(t/m2)"
-    extraHeaders(10, 1) = "": extraHeaders(10, 2) = "As量(t)"
-    extraHeaders(11, 1) = "改質アスコン": extraHeaders(11, 2) = "単位As量(t/m2)"
-    extraHeaders(12, 1) = "": extraHeaders(12, 2) = "As量(t)"
-    extraHeaders(13, 1) = "砕石": extraHeaders(13, 2) = "単位砕石量(m3/m2)"
-    extraHeaders(14, 1) = "": extraHeaders(14, 2) = "砕石量(m3/m2)"
-    extraHeaders(15, 1) = "粒調砕石": extraHeaders(15, 2) = "単位粒調砕石量(m3/m2)"
-    extraHeaders(16, 1) = "": extraHeaders(16, 2) = "粒調砕石量(m3/m2)"
-    extraHeaders(17, 1) = "掘削土量(m3)": extraHeaders(17, 2) = ""
-    extraHeaders(18, 1) = "処分土量(m3)": extraHeaders(18, 2) = ""
-
+    ' （既に追記済みの場合は、手入力データを消さないよう追記しない）
     Dim extraCol As Long
     extraCol = lastColSrc + 1
-    For i = 1 To 18
-        If Len(extraHeaders(i, 1)) > 0 Then wsDest.Cells(1, extraCol + i - 1).Value = extraHeaders(i, 1)
-        If Len(extraHeaders(i, 2)) > 0 Then wsDest.Cells(2, extraCol + i - 1).Value = extraHeaders(i, 2)
-    Next i
+
+    If Len(Trim(CStr(wsDest.Cells(1, extraCol).Value))) = 0 And _
+       Len(Trim(CStr(wsDest.Cells(2, extraCol).Value))) = 0 Then
+
+        Dim extraHeaders(1 To 18, 1 To 2) As String
+        extraHeaders(1, 1) = "単位Co量(m3/施工単位)": extraHeaders(1, 2) = ""
+        extraHeaders(2, 1) = "Co量(m3)": extraHeaders(2, 2) = ""
+        extraHeaders(3, 1) = "粗粒度": extraHeaders(3, 2) = "単位As量(t/m2)"
+        extraHeaders(4, 1) = "": extraHeaders(4, 2) = "As量(t)"
+        extraHeaders(5, 1) = "密粒度": extraHeaders(5, 2) = "単位As量(t/m2)"
+        extraHeaders(6, 1) = "": extraHeaders(6, 2) = "As量(t)"
+        extraHeaders(7, 1) = "細粒度": extraHeaders(7, 2) = "単位As量(t/m2)"
+        extraHeaders(8, 1) = "": extraHeaders(8, 2) = "As量(t)"
+        extraHeaders(9, 1) = "開粒度": extraHeaders(9, 2) = "単位As量(t/m2)"
+        extraHeaders(10, 1) = "": extraHeaders(10, 2) = "As量(t)"
+        extraHeaders(11, 1) = "改質アスコン": extraHeaders(11, 2) = "単位As量(t/m2)"
+        extraHeaders(12, 1) = "": extraHeaders(12, 2) = "As量(t)"
+        extraHeaders(13, 1) = "砕石": extraHeaders(13, 2) = "単位砕石量(m3/m2)"
+        extraHeaders(14, 1) = "": extraHeaders(14, 2) = "砕石量(m3/m2)"
+        extraHeaders(15, 1) = "粒調砕石": extraHeaders(15, 2) = "単位粒調砕石量(m3/m2)"
+        extraHeaders(16, 1) = "": extraHeaders(16, 2) = "粒調砕石量(m3/m2)"
+        extraHeaders(17, 1) = "掘削土量(m3)": extraHeaders(17, 2) = ""
+        extraHeaders(18, 1) = "処分土量(m3)": extraHeaders(18, 2) = ""
+
+        For i = 1 To 18
+            If Len(extraHeaders(i, 1)) > 0 Then wsDest.Cells(1, extraCol + i - 1).Value = extraHeaders(i, 1)
+            If Len(extraHeaders(i, 2)) > 0 Then wsDest.Cells(2, extraCol + i - 1).Value = extraHeaders(i, 2)
+        Next i
+    End If
 
     wsDest.Columns.AutoFit
 
