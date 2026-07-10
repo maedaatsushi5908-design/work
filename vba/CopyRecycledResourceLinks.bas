@@ -2,8 +2,10 @@ Attribute VB_Name = "CopyRecycledResourceLinks"
 Option Explicit
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
-' そのセルの文字列に指定キーワードを含む行のリンクを
+' そのセルの文字列に指定キーワードを含む行を丸ごと、
+' セル参照の数式（=ファイル名!$A$5 形式）として
 ' 「再生資源」シート（無ければ新規作成）へコピーする。
+' 数式で参照するため、元データを変更すると自動的に反映される。
 Sub CopyRecycledResourceLinks()
 
     Const SRC_SHEET_NAME As String = "ファイル名"
@@ -73,8 +75,11 @@ Sub CopyRecycledResourceLinks()
 
     ' 出力先を初期化
     wsDest.Cells.Clear
-    wsDest.Cells(1, 1).Value = HEADER_TEXT
-    wsDest.Cells(1, 2).Value = "リンク"
+
+    ' ヘッダー行（２行目）を数式リンクでコピー
+    For c = 1 To lastColSrc
+        wsDest.Cells(1, c).Formula = "='" & SRC_SHEET_NAME & "'!" & wsSrc.Cells(HEADER_ROW, c).Address
+    Next c
 
     Dim lastRowSrc As Long
     lastRowSrc = wsSrc.Cells(wsSrc.Rows.Count, targetCol).End(xlUp).Row
@@ -85,7 +90,6 @@ Sub CopyRecycledResourceLinks()
     Dim r As Long, i As Long
     Dim cellText As String
     Dim matched As Boolean
-    Dim hl As Hyperlink
 
     For r = HEADER_ROW + 1 To lastRowSrc
         cellText = CStr(wsSrc.Cells(r, targetCol).Value)
@@ -100,25 +104,17 @@ Sub CopyRecycledResourceLinks()
             Next i
 
             If matched Then
-                wsDest.Cells(outRow, 1).Value = cellText
-
-                If wsSrc.Cells(r, targetCol).Hyperlinks.Count > 0 Then
-                    Set hl = wsSrc.Cells(r, targetCol).Hyperlinks(1)
-                    wsDest.Hyperlinks.Add Anchor:=wsDest.Cells(outRow, 2), _
-                                           Address:=hl.Address, _
-                                           SubAddress:=hl.SubAddress, _
-                                           TextToDisplay:=cellText
-                Else
-                    wsDest.Cells(outRow, 2).Value = "(リンクなし)"
-                End If
-
+                ' 行全体（全列）をセル参照の数式でコピー
+                For c = 1 To lastColSrc
+                    wsDest.Cells(outRow, c).Formula = "='" & SRC_SHEET_NAME & "'!" & wsSrc.Cells(r, c).Address
+                Next c
                 outRow = outRow + 1
             End If
         End If
     Next r
 
-    wsDest.Columns("A:B").AutoFit
+    wsDest.Columns.AutoFit
 
-    MsgBox (outRow - 2) & " 件のリンクを「" & DEST_SHEET_NAME & "」シートにコピーしました。", vbInformation
+    MsgBox (outRow - 2) & " 件の行を「" & DEST_SHEET_NAME & "」シートにリンク（数式）でコピーしました。", vbInformation
 
 End Sub
