@@ -152,10 +152,13 @@ Sub CopyRecycledResourceLinks()
         Next i
     End If
 
-    ' ２行目の最後（右端の使用済みセル）の列を求め、その下のセルから
-    ' 単位数量の見出しを縦に記載する
+    ' ２行目の最後（右端の使用済みセル）の列を求め、その１つ隣の列の
+    ' ２行目から下に向かって単位数量の見出しを縦に記載する
     Dim lastColRow2 As Long
     lastColRow2 = wsDest.Cells(2, wsDest.Columns.Count).End(xlToLeft).Column
+
+    Dim unitLabelCol As Long
+    unitLabelCol = lastColRow2 + 1
 
     Dim unitLabels As Variant
     unitLabels = Array("単位Co量(m3/施工単位)", "粗粒度単位As量(t/m2)", "密粒度単位As量(t/m2)", _
@@ -163,9 +166,9 @@ Sub CopyRecycledResourceLinks()
                         "単位砕石量(m3/m2)", "単位粒調砕石量(m3/m2)")
 
     Dim labelRow As Long
-    labelRow = 3
+    labelRow = 2
     For i = LBound(unitLabels) To UBound(unitLabels)
-        wsDest.Cells(labelRow + i, lastColRow2).Value = unitLabels(i)
+        wsDest.Cells(labelRow + i, unitLabelCol).Value = unitLabels(i)
     Next i
 
     wsDest.Columns.AutoFit
