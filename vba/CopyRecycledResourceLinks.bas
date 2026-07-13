@@ -152,30 +152,20 @@ Sub CopyRecycledResourceLinks()
         Next i
     End If
 
-    ' １列目の「落札率↓」セルを探し、その２行下から単位数量の見出しを縦に記載
-    Dim rateRow As Long
-    rateRow = 0
-    Dim lastRowDest As Long
-    lastRowDest = wsDest.Cells(wsDest.Rows.Count, 1).End(xlUp).Row
-    For r = 1 To lastRowDest
-        If InStr(1, CStr(wsDest.Cells(r, 1).Value), "落札率", vbTextCompare) > 0 Then
-            rateRow = r
-            Exit For
-        End If
-    Next r
+    ' ２列目の一番端（最終使用行）の次のセルから、単位数量の見出しを縦に記載
+    Dim lastRowColB As Long
+    lastRowColB = wsDest.Cells(wsDest.Rows.Count, 2).End(xlUp).Row
 
-    If rateRow > 0 Then
-        Dim unitLabels As Variant
-        unitLabels = Array("単位Co量(m3/施工単位)", "粗粒度単位As量(t/m2)", "密粒度単位As量(t/m2)", _
-                            "細粒度単位As量(t/m2)", "開粒度単位As量(t/m2)", "改質アスコン単位As量(t/m2)", _
-                            "単位砕石量(m3/m2)", "単位粒調砕石量(m3/m2)")
+    Dim unitLabels As Variant
+    unitLabels = Array("単位Co量(m3/施工単位)", "粗粒度単位As量(t/m2)", "密粒度単位As量(t/m2)", _
+                        "細粒度単位As量(t/m2)", "開粒度単位As量(t/m2)", "改質アスコン単位As量(t/m2)", _
+                        "単位砕石量(m3/m2)", "単位粒調砕石量(m3/m2)")
 
-        Dim labelRow As Long
-        labelRow = rateRow + 2
-        For i = LBound(unitLabels) To UBound(unitLabels)
-            wsDest.Cells(labelRow + i, 1).Value = unitLabels(i)
-        Next i
-    End If
+    Dim labelRow As Long
+    labelRow = lastRowColB + 1
+    For i = LBound(unitLabels) To UBound(unitLabels)
+        wsDest.Cells(labelRow + i, 2).Value = unitLabels(i)
+    Next i
 
     wsDest.Columns.AutoFit
 
