@@ -6,3 +6,6 @@ __pycache__/
 *.pkl
 cache/
 output/
+
+# ev の予測台帳（個人の投資記録なのでコミットしない）
+*.db

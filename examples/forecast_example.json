@@ -1,0 +1,42 @@
+{
+  "ticker": "1234.T",
+  "thesis": "カバレッジゼロの小型建設。純現金が時価総額の6割でPBR0.6。受注残は過去最高水準にあり、東証の資本効率改善要請の対象。資本政策が動けば再評価される。",
+  "horizon_months": 24,
+  "structural_reason": "日次売買代金1000万円。参加可能な最大ファンドは30億円で、機関投資家は意味のある建玉を作れない。アナリストレポートは1本も出ていない。",
+
+  "claims": [
+    {
+      "claim_id": "c1",
+      "statement": "2028年3月期までに自己株買いまたは増配が公表される",
+      "probability": 0.55,
+      "deadline": "2028-06-30",
+      "resolution_source": "適時開示（自己株取得の決議、配当予想の修正）",
+      "base_rate": 0.34,
+      "divergence_rationale": "PBR1倍割れかつ純現金比率60%の銘柄は東証の要請対象として優先度が高く、同条件の銘柄群では公表率がベースレートを上回っている"
+    },
+    {
+      "claim_id": "c2",
+      "statement": "2027年3月期の営業利益が会社計画の120億円を上回る",
+      "probability": 0.60,
+      "deadline": "2027-05-31",
+      "resolution_source": "決算短信の営業利益（通期実績）",
+      "base_rate": 0.52,
+      "divergence_rationale": ""
+    },
+    {
+      "claim_id": "c3",
+      "statement": "この期間中にアナリストによる新規カバレッジが開始される",
+      "probability": 0.20,
+      "deadline": "2028-06-30",
+      "resolution_source": "証券会社のレポート発行有無（会社IRページの掲載を含む）",
+      "base_rate": 0.15,
+      "divergence_rationale": ""
+    }
+  ],
+
+  "scenarios": [
+    { "name": "資本政策が動き再評価", "probability": 0.30, "total_return": 0.90 },
+    { "name": "業績横ばい・変化なし", "probability": 0.45, "total_return": 0.10 },
+    { "name": "受注減速・利益下振れ", "probability": 0.25, "total_return": -0.35 }
+  ]
+}
