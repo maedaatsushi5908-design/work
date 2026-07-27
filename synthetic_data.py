@@ -7,6 +7,8 @@ yfinance が使えない環境向けに、幾何ブラウン運動（GBM）ベ�
 
 from __future__ import annotations
 
+import zlib
+
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional
@@ -101,7 +103,8 @@ def generate_stock_data(
     dates = pd.bdate_range(start=start_date, end=end_date)
 
     # seed をティッカー文字列から決定論的に生成
-    seed = abs(hash(ticker)) % (2**31)
+    # 組み込み hash() は実行ごとに変わる（PYTHONHASHSEED）ため crc32 を使う
+    seed = zlib.crc32(ticker.encode("utf-8")) % (2**31)
 
     return _generate_ohlcv(
         dates,

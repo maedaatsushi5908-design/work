@@ -2,7 +2,7 @@
 
 ## このプロジェクトの概要
 
-kenmo氏の「新高値ブレイク投資法」を自動化するPythonプログラムです。
+「新高値ブレイク投資法」に **移動平均線フィルター** を重ねた売買システムです。
 GitHub: https://github.com/maedaatsushi5908-design/work
 
 主な機能は2つ：
@@ -11,17 +11,37 @@ GitHub: https://github.com/maedaatsushi5908-design/work
 
 ユーザーはいつもVS CodeでPythonを使っていて、毎朝Discordに通知が届く状態を目指しています。
 
+### 移動平均線フィルターの位置づけ
+
+新高値ブレイクだけだと下降トレンド中の「戻り高値」でも買ってしまうため、
+移動平均線で3段階の絞り込みをかけています。
+
+| 段階 | 内容 | デフォルト |
+|------|------|-----------|
+| エントリーフィルター | 終値>25/75/200日MA・パーフェクトオーダー・200日MAが上向き | 有効 |
+| 地合いフィルター | 日経225が200日MAより上のときだけ新規建て | 有効 |
+| MA割れエグジット | 終値が75日MAを2日連続で下回ったら手仕舞い | **無効**（`--ma-exit` で有効化）|
+
+効果を確認するには `python main.py --compare` を実行すると、
+フィルターを1段ずつ足した4パターンが並んで比較できます。
+
+⚠️ **重要**: この環境（Claude Code on the web）では Yahoo Finance に接続できないため、
+バックテストは合成データ（幾何ブラウン運動）で動きます。合成データにはトレンドの
+継続性が無いので、**フィルターの有効性の数字は当てになりません**。
+ユーザーのPCなど実データが取れる環境で `--compare` を回して判断してください。
+
 ---
 
 ## ファイル構成
 
 ```
 work/
-├── main.py            # バックテスト実行（python main.py）
+├── main.py            # バックテスト実行（python main.py / --compare で比較）
 ├── scanner.py         # デイリースキャナー（python scanner.py --notify）
 ├── notify.py          # 通知モジュール（LINE / Discord / Slack / メール）
 ├── config.py          # 戦略パラメータ・対象銘柄リスト
-├── strategy.py        # 新高値ブレイクシグナル生成
+├── strategy.py        # 新高値ブレイク＋移動平均線フィルターのシグナル生成
+├── test_ma_filter.py  # 移動平均線フィルターの単体テスト（python test_ma_filter.py）
 ├── backtest.py        # バックテストエンジン
 ├── data.py            # 株価データ取得（yfinance、オフライン時は合成データ）
 ├── synthetic_data.py  # テスト用合成株価データ生成
@@ -113,9 +133,18 @@ python scanner.py list
 
 | パラメータ | デフォルト | 意味 |
 |-----------|-----------|------|
-| high_period | 260 | 新高値の判定期間（営業日）≒ 52週 |
-| stop_loss_pct | -0.08 | 損切りライン（-8%）|
-| trailing_stop_pct | -0.15 | トレーリングストップ（高値から-15%）|
+| high_period | 195 | 新高値の判定期間（営業日）≒ 39週 |
+| stop_loss_pct | -0.10 | 損切りライン（-10%）|
+| trailing_stop_pct | -0.20 | トレーリングストップ（高値から-20%）|
 | max_positions | 5 | 最大保有銘柄数 |
+| ma_short_period | 25 | 短期移動平均（営業日）|
+| ma_mid_period | 75 | 中期移動平均（営業日）|
+| ma_long_period | 200 | 長期移動平均（営業日）|
+| ma_filter | True | 移動平均フィルターを使うか |
+| ma_exit | False | MA割れで手仕舞うか |
+| market_filter | True | 地合いフィルターを使うか |
+| market_ma_period | 200 | 地合い判定の移動平均（営業日）|
 
-対象銘柄はNikkei225主要30銘柄（config.py の `NIKKEI_225_TICKERS` で変更可能）。
+対象銘柄は品質フィルター済みの116銘柄（config.py の `CURATED_TICKERS` で変更可能）。
+`scanner.py` のCLIデフォルトも `config.py` の `StrategyConfig` と揃えてあるので、
+バックテストとスキャナーで同じルールが走ります。

@@ -35,7 +35,7 @@ def print_summary(result, benchmark: Optional[pd.DataFrame] = None) -> None:
     r: BacktestResult = result
 
     print("\n" + "=" * 60)
-    print("  kenmo 新高値ブレイク投資法 バックテスト結果")
+    print("  新高値ブレイク × 移動平均線フィルター バックテスト結果")
     print("=" * 60)
     print(f"  総取引数          : {r.total_trades:>8} 回")
     print(f"  勝率              : {r.win_rate:>8.1%}")
@@ -60,6 +60,7 @@ def print_summary(result, benchmark: Optional[pd.DataFrame] = None) -> None:
             label = {
                 "stop_loss": "損切り（固定）",
                 "trailing_stop": "トレーリングストップ",
+                "ma_exit": "移動平均割れ",
                 "end_of_period": "期末クローズ",
             }.get(reason, reason)
             print(f"    {label:20s}: {count} 回")
@@ -82,7 +83,7 @@ def plot_equity_curve(
     normalized = equity / initial * 100  # 100を基準に正規化
 
     ax1 = axes[0]
-    ax1.plot(normalized.index, normalized.values, label="kenmo戦略", color="royalblue", linewidth=2)
+    ax1.plot(normalized.index, normalized.values, label="本戦略", color="royalblue", linewidth=2)
 
     if benchmark is not None:
         bm = benchmark["Close"].reindex(equity.index, method="ffill").dropna()
@@ -91,7 +92,7 @@ def plot_equity_curve(
         ax1.plot(bm_norm.index, bm_norm.values, label="日経225", color="tomato", linewidth=1.5, alpha=0.8)
 
     ax1.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
-    ax1.set_title("kenmo 新高値ブレイク投資法 バックテスト", fontsize=14, fontweight="bold")
+    ax1.set_title("新高値ブレイク × 移動平均線フィルター バックテスト", fontsize=14, fontweight="bold")
     ax1.set_ylabel("資産推移（開始=100）")
     ax1.legend(loc="upper left")
     ax1.grid(True, alpha=0.3)
@@ -155,7 +156,7 @@ def plot_trade_distribution(result, save: bool = True, show: bool = False) -> No
     ax2.set_ylabel("取引数")
     ax2.grid(True, alpha=0.3)
 
-    plt.suptitle("kenmo 新高値ブレイク投資法 取引分析", fontsize=13, fontweight="bold")
+    plt.suptitle("新高値ブレイク × 移動平均線フィルター 取引分析", fontsize=13, fontweight="bold")
     plt.tight_layout()
 
     if save:
@@ -239,6 +240,7 @@ def save_trade_log(result, filename: str = "trade_log.csv") -> None:
             "エグジット理由": {
                 "stop_loss": "損切り",
                 "trailing_stop": "トレーリングストップ",
+                "ma_exit": "移動平均割れ",
                 "end_of_period": "期末クローズ",
             }.get(t.exit_reason, t.exit_reason or ""),
         })

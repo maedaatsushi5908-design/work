@@ -1,5 +1,5 @@
 """
-kenmo氏の新高値ブレイク投資法 バックテスト設定
+新高値ブレイク × 移動平均線フィルター 投資システム 設定
 """
 
 from dataclasses import dataclass, field
@@ -29,6 +29,74 @@ class StrategyConfig:
 
     # 出来高フィルター: 前日比較で出来高が増加していること
     volume_filter: bool = True
+
+    # ──────────────────────────────────────────
+    # 移動平均線フィルター（個別銘柄のトレンド判定）
+    # ──────────────────────────────────────────
+
+    # 移動平均フィルター全体のオン/オフ
+    ma_filter: bool = True
+
+    # 短期・中期・長期の移動平均（営業日）
+    ma_short_period: int = 25   # 約1ヶ月
+    ma_mid_period: int = 75     # 約3ヶ月
+    ma_long_period: int = 200   # 約10ヶ月
+
+    # 終値がすべての移動平均線より上にあること
+    ma_require_above: bool = True
+
+    # パーフェクトオーダー（短期 > 中期 > 長期の並び）を要求する
+    ma_require_alignment: bool = True
+
+    # 長期移動平均が上向きであること（傾きを測る営業日数）
+    ma_require_slope_up: bool = True
+    ma_slope_days: int = 20
+
+    # ──────────────────────────────────────────
+    # 移動平均線によるエグジット
+    # ──────────────────────────────────────────
+
+    # 移動平均線を割り込んだら手仕舞う
+    # デフォルトは無効（損切り・トレーリングストップが主なエグジット）。
+    # main.py の --ma-exit / scanner.py の --ma-exit で有効化できる。
+    ma_exit: bool = False
+
+    # エグジット判定に使う移動平均（営業日）
+    ma_exit_period: int = 75
+
+    # 連続で何日割り込んだら手仕舞うか（ダマシ回避）
+    ma_exit_confirm_days: int = 2
+
+    # ──────────────────────────────────────────
+    # 地合いフィルター（指数の移動平均でマーケット環境を判定）
+    # ──────────────────────────────────────────
+
+    # 指数が長期移動平均より上のときだけ新規エントリーする
+    market_filter: bool = True
+
+    # 地合い判定に使う移動平均（営業日）
+    market_ma_period: int = 200
+
+    # 地合い判定に使う指数
+    market_ticker: str = "^N225"
+
+    @property
+    def ma_periods(self) -> List[int]:
+        """フィルターに使う移動平均の期間（短い順・重複なし）。"""
+        periods = {self.ma_short_period, self.ma_mid_period, self.ma_long_period}
+        if self.ma_exit:
+            periods.add(self.ma_exit_period)
+        return sorted(periods)
+
+    @property
+    def min_bars_required(self) -> int:
+        """シグナル判定に最低限必要な日数。"""
+        required = self.high_period + 1
+        if self.ma_filter:
+            required = max(required, self.ma_long_period + self.ma_slope_days)
+        if self.ma_exit:
+            required = max(required, self.ma_exit_period + self.ma_exit_confirm_days)
+        return required
 
 
 @dataclass

@@ -1,5 +1,5 @@
 """
-kenmo氏の新高値ブレイク投資法 バックテストエンジン
+新高値ブレイク × 移動平均線フィルター バックテストエンジン
 """
 
 from __future__ import annotations
@@ -12,7 +12,13 @@ import numpy as np
 import pandas as pd
 
 from config import BacktestConfig, StrategyConfig
-from strategy import compute_signals, get_entry_date, get_entry_price
+from strategy import (
+    compute_market_regime,
+    compute_signals,
+    get_entry_date,
+    get_entry_price,
+    is_market_ok,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -27,7 +33,8 @@ class Trade:
 
     exit_date: Optional[pd.Timestamp] = None
     exit_price: Optional[float] = None
-    exit_reason: Optional[str] = None  # "stop_loss" | "trailing_stop" | "end_of_period"
+    # "stop_loss" | "trailing_stop" | "ma_exit" | "end_of_period"
+    exit_reason: Optional[str] = None
 
     @property
     def is_open(self) -> bool:
@@ -133,6 +140,7 @@ class Backtester:
         stock_data: Dict[str, pd.DataFrame],
         strategy_config: StrategyConfig,
         backtest_config: BacktestConfig,
+        benchmark: Optional[pd.DataFrame] = None,
     ):
         self.stock_data = stock_data
         self.scfg = strategy_config
@@ -149,6 +157,10 @@ class Backtester:
         for ticker, df in stock_data.items():
             self.signals[ticker] = compute_signals(df, strategy_config)
 
+        # 地合い（指数が長期移動平均より上か）を事前計算
+        # ベンチマークが渡されない場合は地合いフィルターなしで動作する
+        self.market_regime = compute_market_regime(benchmark, strategy_config)
+
     def run(self) -> BacktestResult:
         capital = self.bcfg.initial_capital
         cash = capital
@@ -163,6 +175,10 @@ class Backtester:
                 df = self.stock_data[ticker]
 
                 if date not in df.index:
+                    continue
+
+                # エントリー実行日より前は判定しない（翌日始値エントリーのため）
+                if date < trade.entry_date:
                     continue
 
                 current_low = float(df.loc[date, "Low"])
@@ -191,6 +207,10 @@ class Backtester:
                 elif current_low <= trailing_stop_price:
                     exit_price = max(trailing_stop_price, current_low)
                     exit_reason = "trailing_stop"
+                # 移動平均割れ判定（終値ベース: 引けで手仕舞う）
+                elif bool(self.signals[ticker].loc[date, "ma_exit_signal"]):
+                    exit_price = current_close
+                    exit_reason = "ma_exit"
 
                 if exit_price is not None:
                     # スリッページ・手数料を考慮
@@ -206,7 +226,11 @@ class Backtester:
                     del positions[ticker]
 
             # --- 2. エントリーシグナルの確認 ---
-            for ticker, sig_df in self.signals.items():
+            # 地合いフィルター: 指数が長期移動平均を割っている間は新規建てしない
+            # （保有中のポジションはエグジット条件に従って個別に手仕舞う）
+            market_ok = is_market_ok(self.market_regime, date)
+
+            for ticker, sig_df in self.signals.items() if market_ok else []:
                 # すでにポジション保有中 or 最大ポジション数に達している
                 if ticker in positions:
                     continue
