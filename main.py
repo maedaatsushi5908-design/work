@@ -141,16 +141,21 @@ def print_config(args, cfg: StrategyConfig, ticker_count: int) -> None:
 
 def run_compare(stock_data, benchmark, base_cfg: StrategyConfig, bcfg: BacktestConfig) -> None:
     """フィルターを1段ずつ追加して効果を比較する。"""
+    # ①〜④はフィルターを1段ずつ足していく流れ。
+    # ③が config.py の出荷時デフォルト（MA割れエグジットは無効）。
     variants = [
         ("① ベースライン（新高値ブレイクのみ）",
          replace(base_cfg, ma_filter=False, ma_exit=False, market_filter=False)),
         ("② ＋ MAフィルター（エントリー）",
          replace(base_cfg, ma_filter=True, ma_exit=False, market_filter=False)),
-        ("③ ＋ MA割れエグジット",
-         replace(base_cfg, ma_filter=True, ma_exit=True, market_filter=False)),
-        ("④ ＋ 地合いフィルター（フル）",
+        ("③ ＋ 地合いフィルター ★デフォルト",
+         replace(base_cfg, ma_filter=True, ma_exit=False, market_filter=True)),
+        ("④ ＋ MA割れエグジット（フル）",
          replace(base_cfg, ma_filter=True, ma_exit=True, market_filter=True)),
+        ("⑤ 参考: MA＋MA割れ（地合いなし）",
+         replace(base_cfg, ma_filter=True, ma_exit=True, market_filter=False)),
     ]
+    DEFAULT_ROW = 2  # ③が出荷時デフォルト
 
     print("\nフィルター比較を実行中...")
     rows = []
@@ -172,15 +177,18 @@ def run_compare(stock_data, benchmark, base_cfg: StrategyConfig, bcfg: BacktestC
               f"{r.max_drawdown:>8.1%} {r.win_rate:>6.0%} {r.profit_factor:>6.2f} "
               f"{r.total_trades:>7} {r.avg_holding_days:>7.0f}日")
     print("=" * 96)
+    print("  ★デフォルト = python main.py をオプションなしで実行したときの設定")
 
     base_r = rows[0][1]
-    full_r = rows[-1][1]
-    print("\n  【ベースライン → フル装備の変化】")
-    print(f"    総リターン      : {base_r.total_return:>8.1%} → {full_r.total_return:>8.1%}")
-    print(f"    シャープレシオ  : {base_r.sharpe_ratio:>8.2f} → {full_r.sharpe_ratio:>8.2f}")
-    print(f"    最大ドローダウン: {base_r.max_drawdown:>8.1%} → {full_r.max_drawdown:>8.1%}")
-    print(f"    勝率            : {base_r.win_rate:>8.0%} → {full_r.win_rate:>8.0%}")
-    print(f"    取引数          : {base_r.total_trades:>8} → {full_r.total_trades:>8}")
+    default_r = rows[DEFAULT_ROW][1]
+    print("\n  【ベースライン → デフォルト設定の変化】")
+    print(f"    総リターン      : {base_r.total_return:>8.1%} → {default_r.total_return:>8.1%}")
+    print(f"    シャープレシオ  : {base_r.sharpe_ratio:>8.2f} → {default_r.sharpe_ratio:>8.2f}")
+    print(f"    最大ドローダウン: {base_r.max_drawdown:>8.1%} → {default_r.max_drawdown:>8.1%}")
+    print(f"    勝率            : {base_r.win_rate:>8.0%} → {default_r.win_rate:>8.0%}")
+    print(f"    取引数          : {base_r.total_trades:>8} → {default_r.total_trades:>8}")
+    print("\n  ※ フィルターは取引機会を減らすため、総リターンは下がるのが普通です。")
+    print("     シャープレシオと最大ドローダウンが改善しているかで判断してください。")
     print()
 
 
