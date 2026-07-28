@@ -112,6 +112,26 @@ def download_all_stocks(
     return result
 
 
+def download_index(
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    use_cache: bool = True,
+) -> Optional[pd.DataFrame]:
+    """指数・為替の実データのみを取得する（合成データにフォールバックしない）。
+
+    相関分析では合成データを1本でも混ぜると結果が無意味になるため、
+    取得できなかった場合は None を返し、呼び出し側で明示的に扱う。
+    """
+    return download_stock_data(
+        ticker,
+        start_date,
+        end_date,
+        use_cache=use_cache,
+        use_synthetic_fallback=False,
+    )
+
+
 def download_benchmark(
     start_date: str,
     end_date: str,
