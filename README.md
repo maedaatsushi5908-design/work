@@ -116,8 +116,36 @@ python external_signals.py sources
 | 日経225 | 市場全体の水準 |
 
 すべて yfinance 経由で取得するため **APIキー不要・無料** です。
-建設（42銘柄）と小売（13銘柄）は本命が政府統計なので、e-Stat の
-アプリケーションID（無料）を `.env` に設定すると精度が上がります。
+この状態で信頼できるスコアが出るのは **49/116銘柄**（半導体・電機・精密・
+金融・自動車・資源・海運・商社）です。
+
+### 政府統計（e-Stat）の接続
+
+建設42銘柄・小売13銘柄・機械7銘柄は市況データでは説明できず、本命は
+政府統計です。e-Stat の無料APIキーを設定すると自動的に有効になります。
+
+```bash
+# 1. https://www.e-stat.go.jp/api/ で登録（無料・即日発行）
+# 2. .env に ESTAT_APP_ID=取得したID を記入
+# 3. 設定ファイルを生成
+python external_signals.py estat-init
+
+# 4. 統計表IDを検索（IDは統計の改定で変わるためコードに埋め込んでいない）
+python external_signals.py estat-search --keyword 建設工事受注動態統計調査
+python external_signals.py estat-search --keyword 商業動態統計
+python external_signals.py estat-search --keyword 機械受注統計
+
+# 5. 出てきたIDを estat_series.json の stats_data_id に記入
+# 6. 接続状況を確認
+python external_signals.py sources
+```
+
+政府統計は調査対象月から1〜2ヶ月遅れて公表されるため、`lag_months` の
+分だけインデックスを後ろにずらして「実際に入手できた日」に置き直しています。
+これを怠ると重大な先読みバイアスになります。
+
+未接続でもモジュールは正常に動作し、その業種は残りのドライバーで
+正規化されたスコアになります（`sources` に △ と表示されます）。
 
 ### 2つのモード
 
@@ -130,6 +158,31 @@ python external_signals.py sources
 使えません。同じ輸出企業でも為替感応度は海外売上比率や為替予約の方針で
 大きく違うので、銘柄を選び分けるには `fitted` を使ってください。
 
+### 新高値ブレイク戦略への組み込み
+
+外部環境スコアを既存戦略のエントリーフィルターとして使えます。
+新高値ブレイクのうち、外部環境が業績上振れ方向に動いている銘柄だけを買います。
+
+```bash
+# フィルター無し（従来どおり）
+python main.py
+
+# 外部環境スコアがプラスの銘柄のみエントリー
+python main.py --external-filter --external-min-score 0.0
+
+# 銘柄固有の感応度を使う（計算に数分かかります）
+python main.py --external-filter --external-mode fitted --external-min-score 0.0
+```
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--external-filter` | 無効 | 業績フィルターを有効にする |
+| `--external-mode` | `fixed` | `fixed` = 業種共通の重み / `fitted` = 銘柄固有の感応度 |
+| `--external-min-score` | 0.0 | この値を下回る銘柄のシグナルは見送る |
+
+実行すると「外部フィルターで見送ったシグナル: N 件」が表示されるので、
+フィルター無しの結果と総リターン・シャープレシオを比較してください。
+
 ### 検証
 
 ```bash
@@ -137,8 +190,9 @@ python test_external_signals.py
 ```
 
 先読みバイアス（未来のデータを使ってしまうこと）の検証を含みます。
-スコアと感応度の推定が `asof` 時点までのデータのみに依存することを、
-未来データを足しても結果が変わらないことで機械的に確認しています。
+スコア・感応度の推定・スコア時系列・政府統計の公表ラグのそれぞれについて、
+`asof` 時点までのデータのみに依存することを、未来データを足しても結果が
+変わらないことで機械的に確認しています。
 
 **使う前に必ず `validate` で IC を確認してください。** 平均 IC が 0 から
 有意に離れていなければ、この手法にエッジはありません。またこのスコアは
@@ -159,6 +213,7 @@ python test_external_signals.py
 ├── notify.py                  # 通知モジュール
 ├── external_signals.py        # 外部データによる業績サプライズ推定
 ├── test_external_signals.py   # 上記の自己検証テスト
+├── estat_series.json          # e-Stat 接続設定（estat-init で生成）
 ├── requirements.txt
 ├── cache/                     # 取得データキャッシュ（自動生成）
 └── output/                    # 出力結果（自動生成）

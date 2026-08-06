@@ -25,24 +25,34 @@
 使い方:
     # 現時点の外部環境スコアで全銘柄をランキング
     python external_signals.py rank
+    python external_signals.py rank --mode fitted   # 銘柄固有の感応度を使う
 
     # スコアの内訳を銘柄ごとに表示
-    python external_signals.py explain --ticker 8035.T
+    python external_signals.py explain --ticker 8035.T --mode fitted
 
     # この手法が実際に効くかを過去データで検証（情報係数を測る）
     python external_signals.py validate --start 2016-01-01 --end 2024-12-31
 
     # 利用可能な外部データ系列とセクター対応表を表示
     python external_signals.py sources
+
+    # 政府統計（e-Stat）の接続設定
+    python external_signals.py estat-init
+    python external_signals.py estat-search --keyword 建設工事受注動態統計調査
+
+新高値ブレイク戦略のフィルターとして使う場合は main.py 側から:
+    python main.py --external-filter --external-min-score 0.0
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
@@ -53,6 +63,24 @@ import pandas as pd
 
 from config import DEFAULT_TICKERS
 from data import download_stock_data
+
+
+def _load_dotenv() -> None:
+    """.env を環境変数に読み込む（python-dotenv がなくても動く）。"""
+    env_file = Path(".env")
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key, val = key.strip(), val.strip().strip('"').strip("'")
+        if key and val and key not in os.environ:
+            os.environ[key] = val
+
+
+_load_dotenv()
 
 
 # ──────────────────────────────────────────
@@ -74,7 +102,14 @@ SERIES_LABELS: Dict[str, str] = {
     "ZIM": "ZIM（コンテナ海運・運賃の代理変数）",
     "^TNX": "米10年国債利回り（銀行の利ざや代理変数）",
     "^N225": "日経225（市場全体の水準）",
+    # 以下は e-Stat 接続時のみ有効（estat_series.json に statsDataId を設定する）
+    "estat:construction_orders": "建設工事受注動態統計（国交省・月次）",
+    "estat:retail_sales": "商業動態統計 小売業販売額（経産省・月次）",
+    "estat:machinery_orders": "機械受注統計（内閣府・月次）",
 }
+
+# e-Stat 由来（月次）の系列かどうか。前年同期比の計算方法が日次と異なる。
+ESTAT_PREFIX = "estat:"
 
 
 @dataclass(frozen=True)
@@ -117,11 +152,12 @@ SECTOR_DRIVERS: Dict[str, List[Driver]] = {
         Driver("^N225", +1, 0.30),
         Driver("^SOX", +1, 0.20),
     ],
-    # 機械: 設備投資サイクル
+    # 機械: 設備投資サイクル。機械受注統計が本命
     "machinery": [
-        Driver("^N225", +1, 0.40),
-        Driver("JPY=X", +1, 0.30),
-        Driver("HG=F", +1, 0.30),
+        Driver("estat:machinery_orders", +1, 0.35),
+        Driver("^N225", +1, 0.25),
+        Driver("JPY=X", +1, 0.20),
+        Driver("HG=F", +1, 0.20),
     ],
     # エネルギー: 原油価格が利益をほぼ決める
     "energy": [
@@ -151,14 +187,16 @@ SECTOR_DRIVERS: Dict[str, List[Driver]] = {
         Driver("HG=F", +1, 0.30),
         Driver("JPY=X", +1, 0.40),
     ],
-    # 建設: 本来は公共工事統計が本命。未接続時は市場全体で代用（説明力は低い）
+    # 建設: 公共工事の受注統計が本命。未接続時は市場全体で代用（説明力は低い）
     "construction": [
-        Driver("^N225", +1, 1.00),
+        Driver("estat:construction_orders", +1, 0.70),
+        Driver("^N225", +1, 0.30),
     ],
-    # 小売・消費: 本来は商業動態統計／Googleトレンドが本命。円安はコスト要因
+    # 小売・消費: 商業動態統計が本命。円安は仕入コスト要因なので符号はマイナス
     "retail": [
-        Driver("^N225", +1, 0.60),
-        Driver("JPY=X", -1, 0.40),
+        Driver("estat:retail_sales", +1, 0.55),
+        Driver("^N225", +1, 0.25),
+        Driver("JPY=X", -1, 0.20),
     ],
     # 内需サービス・IT: 外部市況との連動が弱い（＝この手法が効きにくい）
     "domestic": [
@@ -214,13 +252,24 @@ _assign("construction", [
 
 DEFAULT_SECTOR = "domestic"
 
-# 外部市況との連動が構造的に弱く、スコアの信頼性が低い業種
+# 市場データ（yfinance系列）だけでは説明力が乏しい業種。
+# 建設・小売・機械は e-Stat の政府統計を繋ぐと信頼できるようになる。
 WEAK_COVERAGE_SECTORS = {"construction", "retail", "domestic"}
 
 
 def get_sector(ticker: str) -> str:
     """銘柄の業種を返す（未登録は domestic 扱い）。"""
     return TICKER_SECTOR.get(ticker, DEFAULT_SECTOR)
+
+
+def _is_reliable(sector: str, used_series: List[str]) -> bool:
+    """スコアが信頼できる水準かを判定する。
+
+    構造的に弱い業種でも、政府統計（e-Stat）が実際に効いていれば信頼できる。
+    """
+    if sector not in WEAK_COVERAGE_SECTORS:
+        return True
+    return any(name.startswith(ESTAT_PREFIX) for name in used_series)
 
 
 # ──────────────────────────────────────────
@@ -248,13 +297,24 @@ def load_all_series(
     start_date: str,
     end_date: str,
     use_cache: bool = True,
+    include_estat: bool = True,
 ) -> Dict[str, pd.Series]:
-    """必要な外部データ系列をまとめて取得する。"""
+    """必要な外部データ系列をまとめて取得する。
+
+    e-Stat 系列は設定済みかつAPIキーがある場合のみ含まれる。無ければ
+    単に欠損として扱われ、スコアは残りのドライバーで正規化される。
+    """
     out: Dict[str, pd.Series] = {}
     for name in SERIES_LABELS:
+        if name.startswith(ESTAT_PREFIX):
+            continue
         s = load_series(name, start_date, end_date, use_cache=use_cache)
         if s is not None and len(s) > 0:
             out[name] = s
+
+    if include_estat:
+        out.update(load_estat_series())
+
     return out
 
 
@@ -262,13 +322,139 @@ def load_all_series(
 # 政府統計（e-Stat）— 建設・小売の本命データ
 # ──────────────────────────────────────────
 
-ESTAT_ENDPOINT = "https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData"
+ESTAT_DATA_ENDPOINT = "https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData"
+ESTAT_LIST_ENDPOINT = "https://api.e-stat.go.jp/rest/3.0/app/json/getStatsList"
+
+# e-Stat の接続設定ファイル。statsDataId は統計表ごとに異なり、政府統計は
+# 改定されると ID が変わるため、コードに埋め込まず設定として持つ。
+# ID は `python external_signals.py estat-search --keyword 建設工事受注` で探せる。
+ESTAT_CONFIG_FILE = Path("estat_series.json")
+
+# 設定ファイルのテンプレート。statsDataId を埋めると自動的に有効になる。
+ESTAT_TEMPLATE: Dict[str, Dict] = {
+    "estat:construction_orders": {
+        "label": "建設工事受注動態統計（国交省・月次）",
+        "stats_data_id": "",
+        "cd_cat01": "",
+        "lag_months": 2,
+        "_hint": "estat-search --keyword 建設工事受注動態統計調査",
+    },
+    "estat:retail_sales": {
+        "label": "商業動態統計 小売業販売額（経産省・月次）",
+        "stats_data_id": "",
+        "cd_cat01": "",
+        "lag_months": 2,
+        "_hint": "estat-search --keyword 商業動態統計",
+    },
+    "estat:machinery_orders": {
+        "label": "機械受注統計（内閣府・月次）",
+        "stats_data_id": "",
+        "cd_cat01": "",
+        "lag_months": 2,
+        "_hint": "estat-search --keyword 機械受注統計",
+    },
+}
+
+
+def load_estat_config() -> Dict[str, Dict]:
+    """e-Stat 接続設定を読み込む。statsDataId が空のものは無効として除外する。"""
+    if not ESTAT_CONFIG_FILE.exists():
+        return {}
+    try:
+        raw = json.loads(ESTAT_CONFIG_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return {
+        k: v for k, v in raw.items()
+        if isinstance(v, dict) and str(v.get("stats_data_id", "")).strip()
+    }
+
+
+def write_estat_template() -> Path:
+    """設定ファイルのテンプレートを書き出す（既存ファイルは上書きしない）。"""
+    if not ESTAT_CONFIG_FILE.exists():
+        ESTAT_CONFIG_FILE.write_text(
+            json.dumps(ESTAT_TEMPLATE, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    return ESTAT_CONFIG_FILE
+
+
+def search_estat_tables(keyword: str, app_id: Optional[str] = None, limit: int = 20):
+    """キーワードから statsDataId を検索する。
+
+    統計表IDは e-Stat のサイトを手で辿らないと分からないうえ、統計の改定で
+    変わることがある。手作業を避けるための検索ヘルパー。
+
+    Returns:
+        [(statsDataId, 統計名, 調査年月), ...]。取得失敗時は None。
+    """
+    app_id = app_id or os.environ.get("ESTAT_APP_ID")
+    if not app_id:
+        return None
+
+    try:
+        import requests
+
+        resp = requests.get(
+            ESTAT_LIST_ENDPOINT,
+            params={"appId": app_id, "searchWord": keyword, "limit": limit},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+
+        tables = (
+            payload.get("GET_STATS_LIST", {})
+            .get("DATALIST_INF", {})
+            .get("TABLE_INF", [])
+        )
+        if isinstance(tables, dict):
+            tables = [tables]
+
+        out = []
+        for t in tables:
+            def _text(node) -> str:
+                if isinstance(node, dict):
+                    return str(node.get("$", ""))
+                return str(node or "")
+
+            out.append((
+                str(t.get("@id", "")),
+                f"{_text(t.get('STAT_NAME'))} / {_text(t.get('TITLE'))}".strip(" /"),
+                _text(t.get("SURVEY_DATE")),
+            ))
+        return out
+
+    except Exception:
+        return None
+
+
+def _parse_estat_time(raw_time: str) -> Optional[pd.Timestamp]:
+    """e-Stat の時間コードを月初の Timestamp に変換する。
+
+    月次は "2024000101"（2024年 月 01月）のような10桁コードで返ってくる。
+    """
+    raw_time = str(raw_time)
+    try:
+        if len(raw_time) == 10 and raw_time[4:6] == "00":
+            year, month = int(raw_time[:4]), int(raw_time[8:10])
+        elif len(raw_time) >= 6:
+            year, month = int(raw_time[:4]), int(raw_time[4:6])
+        else:
+            return None
+        if not 1 <= month <= 12:
+            return None
+        return pd.Timestamp(year=year, month=month, day=1)
+    except ValueError:
+        return None
 
 
 def fetch_estat_series(
     stats_data_id: str,
     app_id: Optional[str] = None,
     cd_cat01: Optional[str] = None,
+    lag_months: int = 2,
 ) -> Optional[pd.Series]:
     """e-Stat（政府統計の総合窓口）から月次系列を取得する。
 
@@ -276,15 +462,16 @@ def fetch_estat_series(
     アプリケーションIDの登録が必要（https://www.e-stat.go.jp/api/ で即日発行）。
     取得した ID を環境変数 ESTAT_APP_ID または .env に設定する。
 
-    statsDataId は統計表ごとに異なり、e-Stat のサイトで統計表を検索すると
-    確認できる。政府統計は改定されると ID が変わることがあるので、
-    ハードコードせず設定として渡す設計にしてある。
+    【公表ラグの扱い】
+    政府統計は調査対象月から1〜2ヶ月遅れて公表される。2024年1月分の統計を
+    2024年1月時点で使ってしまうと重大な先読みバイアスになるため、
+    インデックスを lag_months ヶ月ずらして「実際に入手できた日」に置き直す。
 
     Returns:
-        月末日をインデックスとする float の系列。取得失敗時は None。
+        公表日（概算）をインデックスとする float の系列。取得失敗時は None。
     """
     app_id = app_id or os.environ.get("ESTAT_APP_ID")
-    if not app_id:
+    if not app_id or not stats_data_id:
         return None
 
     try:
@@ -299,7 +486,7 @@ def fetch_estat_series(
         if cd_cat01:
             params["cdCat01"] = cd_cat01
 
-        resp = requests.get(ESTAT_ENDPOINT, params=params, timeout=30)
+        resp = requests.get(ESTAT_DATA_ENDPOINT, params=params, timeout=30)
         resp.raise_for_status()
         payload = resp.json()
 
@@ -309,35 +496,55 @@ def fetch_estat_series(
             .get("DATA_INF", {})
             .get("VALUE", [])
         )
+        if isinstance(values, dict):
+            values = [values]
         if not values:
             return None
 
-        records = []
+        records: Dict[pd.Timestamp, float] = {}
         for v in values:
-            raw_time = str(v.get("@time", ""))
-            # e-Stat の時間コードは "2024000101"（2024年1月）のような形式
-            if len(raw_time) >= 8 and raw_time[4:6] == "00":
-                year, month = int(raw_time[:4]), int(raw_time[6:8])
-            elif len(raw_time) >= 6:
-                year, month = int(raw_time[:4]), int(raw_time[4:6])
-            else:
+            ts = _parse_estat_time(v.get("@time", ""))
+            if ts is None:
                 continue
             try:
                 val = float(str(v.get("$", "")).replace(",", ""))
-            except ValueError:
+            except (TypeError, ValueError):
                 continue
-            records.append((pd.Timestamp(year=year, month=month, day=1), val))
+            records[ts] = val
 
-        if not records:
+        if len(records) < 24:  # 前年同期比を取るには最低2年必要
             return None
 
-        s = pd.Series(dict(records)).sort_index()
-        # 月次統計は翌月以降に公表されるため、先読みを防ぐには
-        # 利用側で公表ラグ（通常1〜2ヶ月）を必ず加えること。
+        s = pd.Series(records).sort_index()
+        # 調査対象月 → 公表日（概算）へインデックスをずらす
+        s.index = s.index + pd.DateOffset(months=lag_months)
         return s
 
     except Exception:
         return None
+
+
+def load_estat_series() -> Dict[str, pd.Series]:
+    """設定済みの e-Stat 系列をまとめて取得する。
+
+    APIキー未設定・設定ファイル未作成・取得失敗のいずれでも空辞書を返す。
+    政府統計が無くてもスコアリング自体は動く設計にしてある。
+    """
+    config = load_estat_config()
+    if not config:
+        return {}
+
+    out: Dict[str, pd.Series] = {}
+    for key, spec in config.items():
+        s = fetch_estat_series(
+            stats_data_id=str(spec.get("stats_data_id", "")),
+            cd_cat01=str(spec.get("cd_cat01", "")) or None,
+            lag_months=int(spec.get("lag_months", 2)),
+        )
+        if s is not None and len(s) > 0:
+            out[key] = s
+            SERIES_LABELS.setdefault(key, str(spec.get("label", key)))
+    return out
 
 
 # ──────────────────────────────────────────
@@ -364,12 +571,32 @@ def yoy_series(series: pd.Series, window: int = QUARTER_DAYS) -> pd.Series:
     return out.replace([np.inf, -np.inf], np.nan)
 
 
+def yoy_series_monthly(series: pd.Series, window: int = 3) -> pd.Series:
+    """月次系列の前年同期比（直近3ヶ月平均 ÷ 前年同期3ヶ月平均 − 1）。
+
+    政府統計は月次なので、営業日ベースの yoy_series は使えない。
+    """
+    recent = series.rolling(window).mean()
+    year_ago = recent.shift(12)
+    out = recent / year_ago.where(year_ago != 0) - 1.0
+    return out.replace([np.inf, -np.inf], np.nan)
+
+
 def build_change_panel(
     series: Dict[str, pd.Series],
     window: int = QUARTER_DAYS,
 ) -> Dict[str, pd.Series]:
-    """全外部系列の前年同期比を前計算する。"""
-    return {name: yoy_series(s, window).dropna() for name, s in series.items()}
+    """全外部系列の前年同期比を前計算する。
+
+    e-Stat 由来の系列は月次なので、月次用の計算に振り分ける。
+    """
+    out: Dict[str, pd.Series] = {}
+    for name, s in series.items():
+        if name.startswith(ESTAT_PREFIX):
+            out[name] = yoy_series_monthly(s).dropna()
+        else:
+            out[name] = yoy_series(s, window).dropna()
+    return out
 
 
 def lookup_change(changes: Dict[str, pd.Series], name: str, asof: pd.Timestamp) -> Optional[float]:
@@ -439,7 +666,7 @@ def score_ticker(
         score=normalized,
         breakdown=breakdown,
         coverage=coverage,
-        reliable=sector not in WEAK_COVERAGE_SECTORS,
+        reliable=_is_reliable(sector, [n for n, _, _ in breakdown]),
         mode="fixed",
     )
 
@@ -579,7 +806,7 @@ def score_ticker_fitted(
         score=total,
         breakdown=breakdown,
         coverage=1.0,
-        reliable=sector not in WEAK_COVERAGE_SECTORS,
+        reliable=_is_reliable(sector, [n for n, _, _ in breakdown]),
         mode="fitted",
     )
 
@@ -624,6 +851,56 @@ def rank_universe(
 # ──────────────────────────────────────────
 # 検証: この手法は本当に効くのか
 # ──────────────────────────────────────────
+
+# ──────────────────────────────────────────
+# バックテスト用: スコアの時系列化
+# ──────────────────────────────────────────
+
+def build_score_history(
+    tickers: List[str],
+    prices: Dict[str, pd.Series],
+    changes: Dict[str, pd.Series],
+    step_days: int = 21,
+    mode: str = "fixed",
+    forward_days: int = QUARTER_DAYS,
+) -> Dict[str, pd.Series]:
+    """各銘柄について、時点ごとの外部環境スコアの時系列を作る。
+
+    バックテストのフィルターとして使うためのもの。毎営業日計算すると重いので
+    step_days ごとに計算し、利用側は asof() で直近値を引く。
+
+    先読みバイアス対策: 各時点のスコアはその時点までのデータのみで計算される
+    （fitted モードの感応度推定も含む）。
+    """
+    out: Dict[str, pd.Series] = {}
+
+    for t in tickers:
+        px = prices.get(t)
+        if px is None or len(px) == 0:
+            continue
+
+        # スコア計算に必要な履歴が溜まるまでは値を作らない
+        first = YEAR_DAYS + QUARTER_DAYS
+        if mode == "fitted":
+            first += YEAR_DAYS + forward_days
+        if len(px) <= first:
+            continue
+
+        points: Dict[pd.Timestamp, float] = {}
+        for i in range(first, len(px), step_days):
+            asof = px.index[i]
+            if mode == "fitted":
+                sc = score_ticker_fitted(t, asof, changes, px, forward_days=forward_days)
+            else:
+                sc = score_ticker(t, asof, changes)
+            if sc is not None:
+                points[asof] = sc.score
+
+        if points:
+            out[t] = pd.Series(points).sort_index()
+
+    return out
+
 
 def _spearman(a: List[float], b: List[float]) -> Optional[float]:
     """スピアマン順位相関。順位に直してからピアソン相関を取る。
@@ -870,18 +1147,33 @@ def cmd_validate(args: argparse.Namespace) -> None:
 
 
 def cmd_sources(args: argparse.Namespace) -> None:
-    print("\n  【接続済み】yfinance経由・APIキー不要")
+    print("\n  【市場データ】yfinance経由・APIキー不要")
     print("  " + "-" * 62)
     for name, label in SERIES_LABELS.items():
-        print(f"  {name:<10}{label}")
+        if not name.startswith(ESTAT_PREFIX):
+            print(f"  {name:<10}{label}")
 
-    print("\n  【未接続】要 e-Stat アプリケーションID（無料・即日発行）")
+    has_key = bool(os.environ.get("ESTAT_APP_ID"))
+    estat_config = load_estat_config()
+
+    print("\n  【政府統計】e-Stat API")
     print("  " + "-" * 62)
-    print("  建設工事受注動態統計調査（国交省・月次）  → 建設42銘柄")
-    print("  公共工事前払金保証統計（月次）            → 建設42銘柄")
-    print("  商業動態統計（経産省・月次）              → 小売13銘柄")
-    print("  機械受注統計（内閣府・月次）              → 機械7銘柄")
-    print("  https://www.e-stat.go.jp/api/ で登録し ESTAT_APP_ID を .env に設定")
+    print(f"  ESTAT_APP_ID      : {'設定済み' if has_key else '未設定'}")
+    print(f"  {ESTAT_CONFIG_FILE.name:<18}: "
+          f"{f'{len(estat_config)}系列を設定済み' if estat_config else '未設定'}")
+
+    for name, label in SERIES_LABELS.items():
+        if name.startswith(ESTAT_PREFIX):
+            mark = "✓" if name in estat_config else "×"
+            print(f"  {mark} {name:<28}{label}")
+
+    if not (has_key and estat_config):
+        print("\n  接続手順:")
+        print("    1. https://www.e-stat.go.jp/api/ で登録しアプリケーションIDを取得")
+        print("    2. .env に ESTAT_APP_ID=取得したID を記入")
+        print("    3. python external_signals.py estat-init   ← 設定ファイルを生成")
+        print("    4. python external_signals.py estat-search --keyword 建設工事受注動態統計")
+        print(f"    5. 出てきた統計表IDを {ESTAT_CONFIG_FILE.name} の stats_data_id に記入")
 
     print("\n  【業種別カバレッジ】")
     print("  " + "-" * 62)
@@ -889,11 +1181,53 @@ def cmd_sources(args: argparse.Namespace) -> None:
     for t in DEFAULT_TICKERS:
         s = get_sector(t)
         counts[s] = counts.get(s, 0) + 1
+
+    reliable_n = 0
     for sector, cnt in sorted(counts.items(), key=lambda x: -x[1]):
         drivers = SECTOR_DRIVERS.get(sector, [])
-        names = ", ".join(d.series for d in drivers)
-        mark = "△" if sector in WEAK_COVERAGE_SECTORS else "○"
-        print(f"  {mark} {sector:<15}{cnt:>4}銘柄  ← {names}")
+        used = [d.series for d in drivers
+                if not d.series.startswith(ESTAT_PREFIX) or d.series in estat_config]
+        ok = _is_reliable(sector, used)
+        reliable_n += cnt if ok else 0
+        names = ", ".join(used)
+        pending = [d.series for d in drivers
+                   if d.series.startswith(ESTAT_PREFIX) and d.series not in estat_config]
+        suffix = f"  （未接続: {', '.join(pending)}）" if pending else ""
+        print(f"  {'○' if ok else '△'} {sector:<15}{cnt:>4}銘柄  ← {names}{suffix}")
+
+    print(f"\n  信頼できるスコアが出る銘柄: {reliable_n}/{len(DEFAULT_TICKERS)}")
+
+
+def cmd_estat_init(args: argparse.Namespace) -> None:
+    existed = ESTAT_CONFIG_FILE.exists()
+    path = write_estat_template()
+    if existed:
+        print(f"\n  {path} は既に存在するため、上書きしませんでした。")
+    else:
+        print(f"\n  設定ファイルを作成しました: {path}")
+    print("  各系列の stats_data_id を埋めると自動的に有効になります。")
+    print("  IDの探し方: python external_signals.py estat-search --keyword 建設工事受注動態統計")
+
+
+def cmd_estat_search(args: argparse.Namespace) -> None:
+    if not os.environ.get("ESTAT_APP_ID"):
+        print("\n  ESTAT_APP_ID が設定されていません。")
+        print("  https://www.e-stat.go.jp/api/ で登録し .env に記入してください。")
+        return
+
+    results = search_estat_tables(args.keyword, limit=args.limit)
+    if results is None:
+        print("\n  e-Stat への接続に失敗しました（APIキー・ネットワークを確認してください）。")
+        return
+    if not results:
+        print(f"\n  「{args.keyword}」に一致する統計表は見つかりませんでした。")
+        return
+
+    print(f"\n  「{args.keyword}」の検索結果 {len(results)}件")
+    print("  " + "-" * 76)
+    for sid, title, survey in results:
+        print(f"  {sid:<14}{title[:52]:<54}{survey}")
+    print(f"\n  使いたい統計表のIDを {ESTAT_CONFIG_FILE.name} の stats_data_id に記入してください。")
 
 
 def main() -> None:
@@ -928,6 +1262,14 @@ def main() -> None:
 
     p_src = sub.add_parser("sources", help="外部データ系列とカバレッジを表示")
     p_src.set_defaults(func=cmd_sources)
+
+    p_init = sub.add_parser("estat-init", help="e-Stat 接続設定ファイルを生成")
+    p_init.set_defaults(func=cmd_estat_init)
+
+    p_search = sub.add_parser("estat-search", help="e-Stat の統計表IDをキーワード検索")
+    p_search.add_argument("--keyword", required=True, help="例: 建設工事受注動態統計調査")
+    p_search.add_argument("--limit", type=int, default=20, help="表示件数")
+    p_search.set_defaults(func=cmd_estat_search)
 
     args = parser.parse_args()
     if not getattr(args, "command", None):

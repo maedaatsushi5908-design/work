@@ -133,10 +133,21 @@ class Backtester:
         stock_data: Dict[str, pd.DataFrame],
         strategy_config: StrategyConfig,
         backtest_config: BacktestConfig,
+        external_scores: Optional[Dict[str, pd.Series]] = None,
     ):
+        """
+        Args:
+            external_scores: 銘柄 -> 外部環境スコアの時系列。
+                external_signals.build_score_history() が返すもの。
+                strategy_config.external_filter が True のときだけ使われる。
+        """
         self.stock_data = stock_data
         self.scfg = strategy_config
         self.bcfg = backtest_config
+        self.external_scores = external_scores or {}
+
+        # 外部フィルターで見送ったシグナル数（効果の確認用）
+        self.filtered_out = 0
 
         # 全取引日の生成（データが存在する全日付）
         all_dates: set = set()
@@ -148,6 +159,24 @@ class Backtester:
         self.signals: Dict[str, pd.DataFrame] = {}
         for ticker, df in stock_data.items():
             self.signals[ticker] = compute_signals(df, strategy_config)
+
+    def _passes_external_filter(self, ticker: str, date: pd.Timestamp) -> bool:
+        """外部環境スコアがエントリー基準を満たしているか。
+
+        date 時点で判明している直近のスコアだけを見る（先読みしない）。
+        """
+        if not self.scfg.external_filter:
+            return True
+
+        series = self.external_scores.get(ticker)
+        if series is None or len(series) == 0:
+            return self.scfg.external_allow_missing
+
+        score = series.asof(date)
+        if score is None or pd.isna(score):
+            return self.scfg.external_allow_missing
+
+        return float(score) >= self.scfg.external_min_score
 
     def run(self) -> BacktestResult:
         capital = self.bcfg.initial_capital
@@ -218,6 +247,11 @@ class Backtester:
 
                 # 当日がシグナル日かどうか確認
                 if not sig_df.loc[date, "signal"]:
+                    continue
+
+                # 外部データによる業績フィルター
+                if not self._passes_external_filter(ticker, date):
+                    self.filtered_out += 1
                     continue
 
                 # エントリー価格・日付を決定

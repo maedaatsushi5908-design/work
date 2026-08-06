@@ -15,6 +15,10 @@ kenmo氏の新高値ブレイク投資法 バックテスト エントリーポ�
     --no-cache    キャッシュを使わず再取得
     --show        グラフを画面表示する
     --tickers     対象ティッカー (スペース区切り, 省略時はデフォルト銘柄リスト)
+
+    --external-filter     外部データによる業績フィルターを有効にする
+    --external-mode       fixed（業種共通の重み）| fitted（銘柄固有の感応度）
+    --external-min-score  外部環境スコアの下限（例: 0.0）
 """
 
 import argparse
@@ -43,6 +47,12 @@ def parse_args():
     parser.add_argument("--no-cache", action="store_true", help="キャッシュを使わない")
     parser.add_argument("--show", action="store_true", help="グラフを画面表示する")
     parser.add_argument("--tickers", nargs="+", default=None, help="対象ティッカー")
+    parser.add_argument("--external-filter", action="store_true",
+                        help="外部データによる業績フィルターを有効にする")
+    parser.add_argument("--external-mode", choices=["fixed", "fitted"], default="fixed",
+                        help="fixed=業種共通の重み / fitted=銘柄固有の感応度")
+    parser.add_argument("--external-min-score", type=float, default=0.0,
+                        help="外部環境スコアの下限（これ未満のシグナルは見送る）")
     return parser.parse_args()
 
 
@@ -70,6 +80,8 @@ def main():
         trailing_stop_pct=args.trailing,
         max_positions=args.max_pos,
         position_size_pct=1.0 / args.max_pos,
+        external_filter=args.external_filter,
+        external_min_score=args.external_min_score,
     )
     backtest_cfg = BacktestConfig(
         start_date=args.start,
@@ -87,10 +99,32 @@ def main():
 
     benchmark = download_benchmark(args.start, args.end, use_cache=use_cache)
 
+    # 外部データによる業績フィルター用のスコア時系列を構築
+    external_scores = None
+    if args.external_filter:
+        from external_signals import build_change_panel, build_score_history, load_all_series
+
+        print(f"\n外部データを取得中... (mode={args.external_mode})")
+        series = load_all_series(args.start, args.end, use_cache=use_cache)
+        if not series:
+            print("警告: 外部データを取得できなかったため、フィルターを無効にします。")
+            strategy_cfg.external_filter = False
+        else:
+            changes = build_change_panel(series)
+            prices = {t: df["Close"].dropna() for t, df in stock_data.items()}
+            print("外部環境スコアを計算中...")
+            external_scores = build_score_history(
+                list(stock_data.keys()), prices, changes, mode=args.external_mode
+            )
+            print(f"スコア構築完了: {len(external_scores)}/{len(stock_data)} 銘柄")
+
     # バックテスト実行
     print("\nバックテスト実行中...")
-    backtester = Backtester(stock_data, strategy_cfg, backtest_cfg)
+    backtester = Backtester(stock_data, strategy_cfg, backtest_cfg, external_scores)
     result = backtester.run()
+
+    if strategy_cfg.external_filter:
+        print(f"外部フィルターで見送ったシグナル: {backtester.filtered_out} 件")
 
     # 結果表示
     print_summary(result, benchmark)

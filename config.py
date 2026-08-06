@@ -30,6 +30,16 @@ class StrategyConfig:
     # 出来高フィルター: 前日比較で出来高が増加していること
     volume_filter: bool = True
 
+    # 外部データによる業績フィルター（external_signals.py）
+    # 新高値ブレイクのうち、外部環境が業績上振れ方向に動いている銘柄だけを買う
+    external_filter: bool = False
+
+    # 外部環境スコアの下限。これを下回る銘柄のシグナルは見送る
+    external_min_score: float = 0.0
+
+    # スコアが計算できない銘柄（履歴不足・業種未対応）のシグナルを通すか
+    external_allow_missing: bool = True
+
 
 @dataclass
 class BacktestConfig:

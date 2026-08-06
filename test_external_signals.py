@@ -242,16 +242,185 @@ def test_ranking() -> None:
 def test_estat() -> None:
     print("\n[6] e-Stat クライアント")
 
+    import os
+
     # APIキー未設定なら例外を投げずに None を返すこと
     # （設定していないユーザーの環境でスキャナーが落ちないため）
-    import os
     saved = os.environ.pop("ESTAT_APP_ID", None)
     try:
         check("ESTAT_APP_ID 未設定なら例外を出さず None を返す",
               es.fetch_estat_series("dummy-id") is None)
+        check("ESTAT_APP_ID 未設定なら検索も None を返す",
+              es.search_estat_tables("建設") is None)
+        check("ESTAT_APP_ID 未設定でも load_estat_series は空辞書",
+              es.load_estat_series() == {})
     finally:
         if saved:
             os.environ["ESTAT_APP_ID"] = saved
+
+    # 時間コードのパース
+    check("時間コード 2024000103 → 2024年3月",
+          es._parse_estat_time("2024000103") == pd.Timestamp("2024-03-01"))
+    check("時間コード 202403 → 2024年3月",
+          es._parse_estat_time("202403") == pd.Timestamp("2024-03-01"))
+    check("不正な時間コードは None",
+          es._parse_estat_time("abc") is None and es._parse_estat_time("2024000199") is None)
+
+    # 設定ファイル: stats_data_id が空のものは無効として除外されること
+    import json
+    import tempfile
+    from pathlib import Path as _Path
+
+    original = es.ESTAT_CONFIG_FILE
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = _Path(tmp) / "estat_series.json"
+        cfg.write_text(json.dumps({
+            "estat:construction_orders": {"stats_data_id": "0003XXXX", "lag_months": 2},
+            "estat:retail_sales": {"stats_data_id": ""},
+        }, ensure_ascii=False), encoding="utf-8")
+        es.ESTAT_CONFIG_FILE = cfg
+        try:
+            loaded = es.load_estat_config()
+            check("statsDataId が空の系列は無効化される",
+                  set(loaded) == {"estat:construction_orders"}, f"読込: {set(loaded)}")
+        finally:
+            es.ESTAT_CONFIG_FILE = original
+
+    # 設定ファイルが無い環境でも落ちない
+    with tempfile.TemporaryDirectory() as tmp:
+        es.ESTAT_CONFIG_FILE = _Path(tmp) / "missing.json"
+        try:
+            check("設定ファイルが無くても空辞書を返す", es.load_estat_config() == {})
+        finally:
+            es.ESTAT_CONFIG_FILE = original
+
+
+def test_monthly_series() -> None:
+    print("\n[7] 政府統計（月次）の扱い")
+
+    idx = pd.date_range("2018-01-01", periods=60, freq="MS")
+    vals = pd.Series(np.arange(60, dtype=float) + 100, index=idx)
+
+    m = es.yoy_series_monthly(vals)
+    # 直近3ヶ月平均 vs 12ヶ月前の3ヶ月平均
+    recent = vals.iloc[-3:].mean()
+    prior = vals.iloc[-15:-12].mean()
+    check("月次の前年同期比がナイーブ実装と一致",
+          abs(float(m.iloc[-1]) - (recent / prior - 1.0)) < 1e-12)
+
+    check("最初の14ヶ月は NaN（履歴不足）", bool(m.iloc[:14].isna().all()))
+
+    # build_change_panel が estat 系列を月次として扱うこと
+    panel = es.build_change_panel({"estat:construction_orders": vals})
+    direct = es.yoy_series_monthly(vals).dropna()
+    ok = len(panel["estat:construction_orders"]) == len(direct)
+    check("build_change_panel が estat 系列を月次計算に振り分ける", ok)
+
+    # 日次計算を誤って適用していないこと（日次だと履歴不足で空になる）
+    daily = es.yoy_series(vals).dropna()
+    check("月次系列に日次計算を使うと空になる（振り分けの必要性）", len(daily) == 0)
+
+
+def test_estat_publication_lag() -> None:
+    print("\n[8] 政府統計の公表ラグ（先読み防止）")
+
+    # 調査対象月 → 公表日 へのインデックスずらしが効いているか。
+    # fetch_estat_series は通信するのでレスポンス相当のデータで直接検証する。
+    idx = pd.date_range("2020-01-01", periods=36, freq="MS")
+    raw = pd.Series(np.arange(36, dtype=float), index=idx)
+
+    lag = 2
+    shifted = raw.copy()
+    shifted.index = shifted.index + pd.DateOffset(months=lag)
+
+    check("公表ラグの分だけインデックスが後ろにずれる",
+          shifted.index[0] == pd.Timestamp("2020-03-01"))
+
+    # ずらした後は「調査対象月の時点」では値を引けないこと
+    panel = {"estat:x": shifted}
+    v_at_survey = es.lookup_change(panel, "estat:x", pd.Timestamp("2020-01-15"))
+    check("調査対象月の時点ではまだ値を参照できない", v_at_survey is None)
+
+    v_after = shifted.asof(pd.Timestamp("2020-03-15"))
+    check("公表後は値を参照できる", pd.notna(v_after) and float(v_after) == 0.0)
+
+
+def test_score_history_and_filter() -> None:
+    print("\n[9] スコア時系列とバックテストフィルター")
+
+    from backtest import Backtester
+    from config import BacktestConfig, StrategyConfig
+    from synthetic_data import generate_all_stocks
+
+    series = {name: _fake_series(n=2000, seed=i) for i, name in enumerate(es.SERIES_LABELS)
+              if not name.startswith(es.ESTAT_PREFIX)}
+    changes = es.build_change_panel(series)
+
+    tickers = ["8035.T", "7203.T", "6758.T", "5019.T", "8306.T"]
+    data = generate_all_stocks(tickers, "2016-01-01", "2024-12-31")
+    prices = {t: df["Close"].dropna() for t, df in data.items()}
+
+    hist = es.build_score_history(tickers, prices, changes, mode="fixed")
+    check("スコア時系列が構築できる", len(hist) == len(tickers), f"{len(hist)}/{len(tickers)}銘柄")
+
+    if hist:
+        s = next(iter(hist.values()))
+        check("スコア時系列が時刻順にソートされている", bool(s.index.is_monotonic_increasing))
+
+        # 先読み検証: 過去だけで作った時系列が、全期間で作ったものと前半一致する
+        cut = prices["8035.T"].index[1500]
+        trunc_prices = {t: p[p.index <= cut] for t, p in prices.items()}
+        trunc_changes = es.build_change_panel({k: v[v.index <= cut] for k, v in series.items()})
+        hist_trunc = es.build_score_history(tickers, trunc_prices, trunc_changes, mode="fixed")
+
+        full = hist["8035.T"]
+        part = hist_trunc.get("8035.T")
+        ok = part is not None and len(part) > 0
+        if ok:
+            common = full.index.intersection(part.index)
+            ok = len(common) > 0 and np.allclose(
+                full.loc[common].values, part.loc[common].values, atol=1e-9
+            )
+        check("スコア時系列に先読みが無い（過去だけで作っても同値）", ok)
+
+    # フィルターの動作: 閾値を極端に上げると全シグナルが弾かれること
+    bcfg = BacktestConfig(start_date="2016-01-01", end_date="2024-12-31")
+
+    base = Backtester(data, StrategyConfig(), bcfg).run()
+
+    scfg_block = StrategyConfig(
+        external_filter=True, external_min_score=9.99, external_allow_missing=False
+    )
+    bt_block = Backtester(data, scfg_block, bcfg, hist)
+    blocked = bt_block.run()
+
+    check("閾値を極端に上げると取引が発生しない",
+          blocked.total_trades == 0 and bt_block.filtered_out > 0,
+          f"取引{blocked.total_trades}件 / 見送り{bt_block.filtered_out}件")
+
+    scfg_pass = StrategyConfig(
+        external_filter=True, external_min_score=-9.99, external_allow_missing=True
+    )
+    bt_pass = Backtester(data, scfg_pass, bcfg, hist)
+    passed = bt_pass.run()
+
+    check("閾値を極端に下げるとフィルター無しと同じ結果になる",
+          passed.total_trades == base.total_trades,
+          f"{passed.total_trades} vs {base.total_trades}件")
+
+    # スコアが無い銘柄の扱い
+    scfg_missing = StrategyConfig(
+        external_filter=True, external_min_score=-9.99, external_allow_missing=False
+    )
+    bt_missing = Backtester(data, scfg_missing, bcfg, {})
+    missing = bt_missing.run()
+    check("スコア未取得かつ allow_missing=False なら全て見送る",
+          missing.total_trades == 0)
+
+    bt_default = Backtester(data, StrategyConfig(), bcfg, None)
+    default = bt_default.run()
+    check("external_filter=False ならスコア未指定でも従来通り動く",
+          default.total_trades == base.total_trades and bt_default.filtered_out == 0)
 
 
 def main() -> None:
@@ -265,6 +434,9 @@ def main() -> None:
     test_score_behaviour()
     test_ranking()
     test_estat()
+    test_monthly_series()
+    test_estat_publication_lag()
+    test_score_history_and_filter()
 
     print("\n" + "=" * 62)
     if FAILURES:
