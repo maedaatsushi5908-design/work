@@ -125,7 +125,7 @@ Sub CopyRecycledResourceLinks()
     If Len(Trim(CStr(wsDest.Cells(1, extraCol).Value))) = 0 And _
        Len(Trim(CStr(wsDest.Cells(2, extraCol).Value))) = 0 Then
 
-        Dim extraHeaders(1 To 20, 1 To 2) As String
+        Dim extraHeaders(1 To 18, 1 To 2) As String
         extraHeaders(1, 1) = "": extraHeaders(1, 2) = "単位Co量(m3/施工単位)"
         extraHeaders(2, 1) = "": extraHeaders(2, 2) = "Co量(m3)"
         extraHeaders(3, 1) = "": extraHeaders(3, 2) = "処分Co量(m3)"
@@ -140,14 +140,12 @@ Sub CopyRecycledResourceLinks()
         extraHeaders(12, 1) = "改質アスコン": extraHeaders(12, 2) = "単位As量(t/m2)"
         extraHeaders(13, 1) = "": extraHeaders(13, 2) = "As量(t)"
         extraHeaders(14, 1) = "": extraHeaders(14, 2) = "処分As量(t)"
-        extraHeaders(15, 1) = "砕石": extraHeaders(15, 2) = "単位砕石量(m3/m2)"
-        extraHeaders(16, 1) = "": extraHeaders(16, 2) = "砕石量(m3/m2)"
-        extraHeaders(17, 1) = "粒調砕石": extraHeaders(17, 2) = "単位粒調砕石量(m3/m2)"
-        extraHeaders(18, 1) = "": extraHeaders(18, 2) = "粒調砕石量(m3/m2)"
-        extraHeaders(19, 1) = "": extraHeaders(19, 2) = "掘削土量(m3)"
-        extraHeaders(20, 1) = "": extraHeaders(20, 2) = "処分土量(m3)"
+        extraHeaders(15, 1) = "": extraHeaders(15, 2) = "砕石量(m3/m2)"
+        extraHeaders(16, 1) = "": extraHeaders(16, 2) = "粒調砕石量(m3/m2)"
+        extraHeaders(17, 1) = "": extraHeaders(17, 2) = "掘削土量(m3)"
+        extraHeaders(18, 1) = "": extraHeaders(18, 2) = "処分土量(m3)"
 
-        For i = 1 To 20
+        For i = 1 To 18
             If Len(extraHeaders(i, 1)) > 0 Then wsDest.Cells(1, extraCol + i - 1).Value = extraHeaders(i, 1)
             If Len(extraHeaders(i, 2)) > 0 Then wsDest.Cells(2, extraCol + i - 1).Value = extraHeaders(i, 2)
         Next i
@@ -157,9 +155,14 @@ Sub CopyRecycledResourceLinks()
         ' 手入力された数量データも見出しと一緒に正しくずれる）
         InsertMissingHeaderColumn wsDest, extraCol, "処分Co量(m3)", "単位As量(t/m2)"
         InsertMissingHeaderColumn wsDest, extraCol, "処分As量(t)", "単位砕石量(m3/m2)"
+
+        ' 不要になった「砕石」「粒調砕石」の見出し列は自動的に削除する
+        ' （列を削除するので、右側の見出し・データも自動的に詰まる）
+        DeleteHeaderColumnIfPresent wsDest, extraCol, "砕石", "単位砕石量(m3/m2)"
+        DeleteHeaderColumnIfPresent wsDest, extraCol, "粒調砕石", "単位粒調砕石量(m3/m2)"
     End If
 
-    ' 材料数量集計用見出し（20列、extraCol～extraCol+19）のすぐ右の
+    ' 材料数量集計用見出し（18列、extraCol～extraCol+17）のすぐ右の
     ' 固定位置に、単位数量の見出しを縦に記載する。列位置を毎回スキャンで
     ' 探すのではなく固定にすることで、既存データの内容に影響されず、
     ' 再実行しても列がずれたり増えたりしない
@@ -168,7 +171,7 @@ Sub CopyRecycledResourceLinks()
                         "細粒度単位As量(t/m2)", "開粒度単位As量(t/m2)", "改質アスコン単位As量(t/m2)")
 
     Dim unitLabelCol As Long
-    unitLabelCol = extraCol + 20
+    unitLabelCol = extraCol + 18
 
     Dim labelRow As Long
     labelRow = 2
@@ -224,4 +227,20 @@ Private Sub InsertMissingHeaderColumn(ws As Worksheet, searchFromCol As Long, _
 
     ws.Columns(targetCol).Insert Shift:=xlToRight
     ws.Cells(2, targetCol).Value = newHeaderText
+End Sub
+
+' １行目が headerRow1Text、２行目が headerRow2Text の列が見つかれば、
+' その列ごと削除する（右側の見出し・データは自動的に詰まる）。
+Private Sub DeleteHeaderColumnIfPresent(ws As Worksheet, searchFromCol As Long, _
+                                         headerRow1Text As String, headerRow2Text As String)
+    Dim lastCol As Long
+    lastCol = ws.Cells(2, ws.Columns.Count).End(xlToLeft).Column
+
+    Dim c As Long
+    For c = searchFromCol To lastCol
+        If CStr(ws.Cells(1, c).Value) = headerRow1Text And CStr(ws.Cells(2, c).Value) = headerRow2Text Then
+            ws.Columns(c).Delete Shift:=xlToLeft
+            Exit Sub
+        End If
+    Next c
 End Sub
