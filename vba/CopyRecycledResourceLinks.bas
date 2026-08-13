@@ -151,6 +151,12 @@ Sub CopyRecycledResourceLinks()
             If Len(extraHeaders(i, 1)) > 0 Then wsDest.Cells(1, extraCol + i - 1).Value = extraHeaders(i, 1)
             If Len(extraHeaders(i, 2)) > 0 Then wsDest.Cells(2, extraCol + i - 1).Value = extraHeaders(i, 2)
         Next i
+    Else
+        ' 既に見出しがある古いレイアウトのシートには、不足している見出し列
+        ' だけを実際に挿入して自動的に補う（列を挿入するので、３行目以降に
+        ' 手入力された数量データも見出しと一緒に正しくずれる）
+        InsertMissingHeaderColumn wsDest, extraCol, "処分Co量(m3)", "単位As量(t/m2)"
+        InsertMissingHeaderColumn wsDest, extraCol, "処分As量(t)", "単位砕石量(m3/m2)"
     End If
 
     ' 材料数量集計用見出し（20列、extraCol～extraCol+19）のすぐ右の
@@ -189,4 +195,33 @@ Sub CopyRecycledResourceLinks()
 
     MsgBox (outRow - 3) & " 件の行を「" & DEST_SHEET_NAME & "」シートにリンク（数式）でコピーしました。", vbInformation
 
+End Sub
+
+' ２行目に newHeaderText が既に無ければ、beforeHeaderText と書かれた列の
+' 手前に新しい列を挿入して newHeaderText を書き込む。
+' 列挿入なので、その右側の見出し・データは自動的に１列分ずれる。
+Private Sub InsertMissingHeaderColumn(ws As Worksheet, searchFromCol As Long, _
+                                       newHeaderText As String, beforeHeaderText As String)
+    Dim lastCol As Long
+    lastCol = ws.Cells(2, ws.Columns.Count).End(xlToLeft).Column
+
+    Dim c As Long
+    For c = searchFromCol To lastCol
+        If CStr(ws.Cells(2, c).Value) = newHeaderText Then
+            Exit Sub
+        End If
+    Next c
+
+    Dim targetCol As Long
+    targetCol = 0
+    For c = searchFromCol To lastCol
+        If CStr(ws.Cells(2, c).Value) = beforeHeaderText Then
+            targetCol = c
+            Exit For
+        End If
+    Next c
+    If targetCol = 0 Then Exit Sub
+
+    ws.Columns(targetCol).Insert Shift:=xlToRight
+    ws.Cells(2, targetCol).Value = newHeaderText
 End Sub
