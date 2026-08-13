@@ -168,7 +168,8 @@ Sub CopyRecycledResourceLinks()
 
     Dim cc As Long
     For cc = 1 To lastColRow2
-        If CStr(wsDest.Cells(2, cc).Value) = unitLabels(LBound(unitLabels)) Then
+        If CStr(wsDest.Cells(2, cc).Value) = unitLabels(LBound(unitLabels)) And _
+           CStr(wsDest.Cells(3, cc).Value) = unitLabels(LBound(unitLabels) + 1) Then
             unitLabelCol = cc
             Exit For
         End If
