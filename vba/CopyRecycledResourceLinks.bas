@@ -152,18 +152,29 @@ Sub CopyRecycledResourceLinks()
         Next i
     End If
 
-    ' ２行目の最後（右端の使用済みセル）の列を求め、その１つ隣の列の
-    ' ２行目から下に向かって単位数量の見出しを縦に記載する
-    Dim lastColRow2 As Long
-    lastColRow2 = wsDest.Cells(2, wsDest.Columns.Count).End(xlToLeft).Column
-
-    Dim unitLabelCol As Long
-    unitLabelCol = lastColRow2 + 1
-
+    ' ２行目の最後（右端の使用済みセル）の列の１つ隣に、単位数量の見出しを
+    ' 縦に記載する。既に同じ見出しが書き込まれている場合はその列を再利用し、
+    ' 再実行のたびに列が増えていかないようにする
     Dim unitLabels As Variant
     unitLabels = Array("単位Co量(m3/施工単位)", "粗粒度単位As量(t/m2)", "密粒度単位As量(t/m2)", _
                         "細粒度単位As量(t/m2)", "開粒度単位As量(t/m2)", "改質アスコン単位As量(t/m2)", _
                         "単位砕石量(m3/m2)", "単位粒調砕石量(m3/m2)")
+
+    Dim lastColRow2 As Long
+    lastColRow2 = wsDest.Cells(2, wsDest.Columns.Count).End(xlToLeft).Column
+
+    Dim unitLabelCol As Long
+    unitLabelCol = 0
+
+    Dim cc As Long
+    For cc = 1 To lastColRow2
+        If CStr(wsDest.Cells(2, cc).Value) = unitLabels(LBound(unitLabels)) Then
+            unitLabelCol = cc
+            Exit For
+        End If
+    Next cc
+
+    If unitLabelCol = 0 Then unitLabelCol = lastColRow2 + 1
 
     Dim labelRow As Long
     labelRow = 2
