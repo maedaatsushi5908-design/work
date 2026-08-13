@@ -171,6 +171,11 @@ Sub CopyRecycledResourceLinks()
         wsDest.Cells(labelRow + i, unitLabelCol).Value = unitLabels(i)
     Next i
 
+    ' 一番端の「単位Co量」セルの横に、数値・単位・参照先を記載
+    wsDest.Cells(labelRow, unitLabelCol + 1).Value = "0.138"
+    wsDest.Cells(labelRow, unitLabelCol + 2).Value = "m3/m"
+    wsDest.Cells(labelRow, unitLabelCol + 3).Value = "標準図 NG-L-FA参照"
+
     wsDest.Columns.AutoFit
 
     MsgBox (outRow - 3) & " 件の行を「" & DEST_SHEET_NAME & "」シートにリンク（数式）でコピーしました。", vbInformation
