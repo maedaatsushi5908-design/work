@@ -157,8 +157,7 @@ Sub CopyRecycledResourceLinks()
     ' 再実行しても列がずれたり増えたりしない
     Dim unitLabels As Variant
     unitLabels = Array("単位Co量(m3/施工単位)", "粗粒度単位As量(t/m2)", "密粒度単位As量(t/m2)", _
-                        "細粒度単位As量(t/m2)", "開粒度単位As量(t/m2)", "改質アスコン単位As量(t/m2)", _
-                        "単位砕石量(m3/m2)", "単位粒調砕石量(m3/m2)")
+                        "細粒度単位As量(t/m2)", "開粒度単位As量(t/m2)", "改質アスコン単位As量(t/m2)")
 
     Dim unitLabelCol As Long
     unitLabelCol = extraCol + 18
