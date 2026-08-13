@@ -174,6 +174,16 @@ Sub CopyRecycledResourceLinks()
     wsDest.Cells(labelRow, unitLabelCol + 2).Value = "m3/m"
     wsDest.Cells(labelRow, unitLabelCol + 3).Value = "標準図 NG-L-FA参照"
 
+    ' 粗粒度/密粒度/細粒度/開粒度/改質アスコン、各単位As量セルの横に、数値・単位・注記を記載
+    Dim asValues As Variant
+    asValues = Array("0.115", "0.118", "0.115", "0.097", "0.115")
+
+    For i = 1 To 5
+        wsDest.Cells(labelRow + i, unitLabelCol + 1).Value = asValues(i - 1)
+        wsDest.Cells(labelRow + i, unitLabelCol + 2).Value = "t/m2"
+        wsDest.Cells(labelRow + i, unitLabelCol + 3).Value = "t=5cm"
+    Next i
+
     wsDest.Columns.AutoFit
 
     MsgBox (outRow - 3) & " 件の行を「" & DEST_SHEET_NAME & "」シートにリンク（数式）でコピーしました。", vbInformation
