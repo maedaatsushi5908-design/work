@@ -1,4 +1,3 @@
-Attribute VB_Name = "CopyRecycledResourceLinks"
 Option Explicit
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
