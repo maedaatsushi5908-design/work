@@ -257,6 +257,24 @@ Sub CopyRecycledResourceLinks()
                (InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "5号工", vbTextCompare) > 0 Or _
                 InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "10号工", vbTextCompare) > 0) Then
                 wsDest.Cells(r, fineFineAsCol).Formula = "=" & fineFineAsRefAddr
+
+                ' 右隣（As量(t)列）に、G列の記載内容に応じた係数付きの数式を入れる
+                Dim fineFineG As String
+                fineFineG = NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value))
+
+                Dim fineFineAjAddr As String, fineFineLAddr As String
+                fineFineAjAddr = wsDest.Cells(r, fineFineAsCol).Address(False, False)
+                fineFineLAddr = wsDest.Cells(r, 12).Address(False, False)
+
+                If InStr(1, fineFineG, "4cm", vbTextCompare) > 0 Then
+                    wsDest.Cells(r, fineFineAsCol + 1).Formula = "=" & fineFineAjAddr & "*" & fineFineLAddr & "*4/5"
+                ElseIf InStr(1, fineFineG, "5cm", vbTextCompare) > 0 Then
+                    wsDest.Cells(r, fineFineAsCol + 1).Formula = "=" & fineFineAjAddr & "*" & fineFineLAddr
+                ElseIf InStr(1, fineFineG, "10cm", vbTextCompare) > 0 Then
+                    wsDest.Cells(r, fineFineAsCol + 1).Formula = "=" & fineFineAjAddr & "*" & fineFineLAddr & "*2"
+                ElseIf InStr(1, fineFineG, "10号工", vbTextCompare) > 0 Then
+                    wsDest.Cells(r, fineFineAsCol + 1).Formula = "=" & fineFineAjAddr & "*" & fineFineLAddr & "*4/5"
+                End If
             End If
         Next r
     End If
