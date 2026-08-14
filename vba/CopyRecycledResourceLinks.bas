@@ -184,6 +184,17 @@ Sub CopyRecycledResourceLinks()
     wsDest.Cells(labelRow, unitLabelCol + 2).Value = "m3/m"
     wsDest.Cells(labelRow, unitLabelCol + 3).Value = "標準図 NG-L-FA参照"
 
+    ' D列に「街渠工」を含む行の「単位Co量」列（extraCol）に、
+    ' 上で記載した0.138セルを絶対参照する数式を入れる
+    Dim unitCoRefAddr As String
+    unitCoRefAddr = wsDest.Cells(labelRow, unitLabelCol + 1).Address(RowAbsolute:=True, ColumnAbsolute:=True)
+
+    For r = 3 To outRow - 1
+        If InStr(1, CStr(wsDest.Cells(r, 4).Value), "街渠工", vbTextCompare) > 0 Then
+            wsDest.Cells(r, extraCol).Formula = "=" & unitCoRefAddr
+        End If
+    Next r
+
     ' 粗粒度/密粒度/細粒度/開粒度/改質アスコン、各単位As量セルの横に、数値・単位・注記を記載
     Dim asValues As Variant
     asValues = Array("0.115", "0.118", "0.115", "0.097", "0.115")
