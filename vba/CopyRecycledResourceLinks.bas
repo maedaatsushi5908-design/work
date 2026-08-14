@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v41"
+Const MACRO_VERSION As String = "v42"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -312,6 +312,20 @@ Sub CopyRecycledResourceLinks()
                 ElseIf InStr(1, coarseG, "10-1号工", vbTextCompare) > 0 Then
                     wsDest.Cells(r, coarseAsCol + 1).Formula = "=" & coarseAlAddr & "*" & coarseLAddr & "*4/5"
                 End If
+            End If
+        Next r
+    End If
+
+    ' D列に「舗装復旧工」を含み、かつG列に「７号工」を含む行の
+    ' 「Co量(m3)」列に、＝L列×0.15 の数式を入れる（全角/半角の表記ゆれを吸収）
+    Dim coQuantityCol As Long
+    coQuantityCol = FindHeaderColumn(wsDest, extraCol, "Co量(m3)")
+
+    If coQuantityCol > 0 Then
+        For r = 3 To outRow - 1
+            If InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 4).Value)), "舗装復旧工", vbTextCompare) > 0 And _
+               InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "7号工", vbTextCompare) > 0 Then
+                wsDest.Cells(r, coQuantityCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False) & "*0.15"
             End If
         Next r
     End If
