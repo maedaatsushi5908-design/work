@@ -205,7 +205,7 @@ Sub CopyRecycledResourceLinks()
         End If
     Next r
 
-    ' D列に「殻運搬処理」を含み、かつE列またはH列に「Co」を含む行の
+    ' D列に「殻運搬処理」を含み、かつE列またはI列に「Co」を含む行の
     ' 「処分無筋Co量(m3)」列に、その行のL列を絶対参照する数式を入れる
     Dim disposalConcreteCol As Long
     disposalConcreteCol = FindHeaderColumn(wsDest, extraCol, "処分無筋Co量(m3)")
@@ -214,7 +214,7 @@ Sub CopyRecycledResourceLinks()
         For r = 3 To outRow - 1
             If InStr(1, CStr(wsDest.Cells(r, 4).Value), "殻運搬処理", vbTextCompare) > 0 And _
                (InStr(1, CStr(wsDest.Cells(r, 5).Value), "Co", vbTextCompare) > 0 Or _
-                InStr(1, CStr(wsDest.Cells(r, 8).Value), "Co", vbTextCompare) > 0) Then
+                InStr(1, CStr(wsDest.Cells(r, 9).Value), "Co", vbTextCompare) > 0) Then
                 wsDest.Cells(r, disposalConcreteCol).Formula = "=$L$" & r
             End If
         Next r
