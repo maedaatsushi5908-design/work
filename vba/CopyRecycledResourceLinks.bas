@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v38"
+Const MACRO_VERSION As String = "v39"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -361,6 +361,12 @@ Private Function NormalizeForMatch(ByVal s As String) As String
     result = Replace(result, "—", "-")
     result = Replace(result, "ー", "-")
     result = Replace(result, "ｰ", "-")
+
+    ' cm/m2/m3などの単位記号（CJK互換文字の１文字表記）を通常の英字表記に展開
+    result = Replace(result, "㎝", "cm")
+    result = Replace(result, "㎜", "mm")
+    result = Replace(result, "㎡", "m2")
+    result = Replace(result, "㎥", "m3")
 
     NormalizeForMatch = result
 End Function
