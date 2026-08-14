@@ -199,6 +199,27 @@ Sub CopyRecycledResourceLinks()
         Next r
     End If
 
+    ' D列に「舗装復旧工」を含み、かつ（G列に「２－２号工」もしくは「３号工」、
+    ' またはE列に「10-1号工(乗入部)」を含む）行の「粗粒度」列
+    ' （１行目=粗粒度、２行目=単位As量(t/m2)）に、粗粒度単位As量の
+    ' 0.115セルを絶対参照する数式を入れる（全角/半角・ダッシュの表記ゆれを吸収）
+    Dim roughAsCol As Long
+    roughAsCol = FindHeaderColumnByRow1Row2(wsDest, extraCol, "粗粒度", "単位As量(t/m2)")
+
+    If roughAsCol > 0 Then
+        Dim roughAsRefAddr As String
+        roughAsRefAddr = wsDest.Cells(labelRow + 1, unitLabelCol + 1).Address(RowAbsolute:=True, ColumnAbsolute:=True)
+
+        For r = 3 To outRow - 1
+            If InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 4).Value)), "舗装復旧工", vbTextCompare) > 0 And _
+               (InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "2-2号工", vbTextCompare) > 0 Or _
+                InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "3号工", vbTextCompare) > 0 Or _
+                InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 5).Value)), "10-1号工(乗入部)", vbTextCompare) > 0) Then
+                wsDest.Cells(r, roughAsCol).Formula = "=" & roughAsRefAddr
+            End If
+        Next r
+    End If
+
     ' 粗粒度/密粒度/細粒度/開粒度/改質アスコン、各単位As量セルの横に、数値・単位・注記を記載
     Dim asValues As Variant
     asValues = Array("0.115", "0.118", "0.115", "0.097", "0.115")
@@ -228,4 +249,37 @@ Private Function FindHeaderColumn(ws As Worksheet, searchFromCol As Long, header
         End If
     Next c
     FindHeaderColumn = 0
+End Function
+
+' １行目が row1Text、２行目が row2Text と一致する列番号を返す。
+' （"単位As量(t/m2)"のように２行目だけでは複数該当する見出しを区別するため）
+' 見つからなければ0を返す。
+Private Function FindHeaderColumnByRow1Row2(ws As Worksheet, searchFromCol As Long, _
+                                             row1Text As String, row2Text As String) As Long
+    Dim lastCol As Long
+    lastCol = ws.Cells(2, ws.Columns.Count).End(xlToLeft).Column
+
+    Dim c As Long
+    For c = searchFromCol To lastCol
+        If CStr(ws.Cells(1, c).Value) = row1Text And CStr(ws.Cells(2, c).Value) = row2Text Then
+            FindHeaderColumnByRow1Row2 = c
+            Exit Function
+        End If
+    Next c
+    FindHeaderColumnByRow1Row2 = 0
+End Function
+
+' 全角英数字・記号を半角に揃え、長音記号やダッシュ類も半角ハイフンに
+' 統一してから比較できるようにする（表記ゆれ対策）。
+Private Function NormalizeForMatch(ByVal s As String) As String
+    Dim t As String
+    t = StrConv(s, vbNarrow)
+    t = Replace(t, "－", "-")
+    t = Replace(t, "‐", "-")
+    t = Replace(t, "‑", "-")
+    t = Replace(t, "–", "-")
+    t = Replace(t, "—", "-")
+    t = Replace(t, "ー", "-")
+    t = Replace(t, "ｰ", "-")
+    NormalizeForMatch = t
 End Function
