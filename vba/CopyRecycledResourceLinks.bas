@@ -189,9 +189,13 @@ Sub CopyRecycledResourceLinks()
     Dim unitCoRefAddr As String
     unitCoRefAddr = wsDest.Cells(labelRow, unitLabelCol + 1).Address(RowAbsolute:=True, ColumnAbsolute:=True)
 
+    ' 同じ行の「単位Co量」列（extraCol）の右隣（Co量(m3)列）に、
+    ' 単位Co量×L列 の数式を入れる
     For r = 3 To outRow - 1
         If InStr(1, CStr(wsDest.Cells(r, 4).Value), "街渠工", vbTextCompare) > 0 Then
             wsDest.Cells(r, extraCol).Formula = "=" & unitCoRefAddr
+            wsDest.Cells(r, extraCol + 1).Formula = "=" & wsDest.Cells(r, extraCol).Address(False, False) & _
+                                                     "*" & wsDest.Cells(r, 12).Address(False, False)
         End If
     Next r
 
