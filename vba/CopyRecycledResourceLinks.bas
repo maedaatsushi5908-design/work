@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v39"
+Const MACRO_VERSION As String = "v40"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -279,6 +279,25 @@ Sub CopyRecycledResourceLinks()
                 ElseIf InStr(1, fineFineG, "10号工", vbTextCompare) > 0 Then
                     wsDest.Cells(r, fineFineAsCol + 1).Formula = "=" & fineFineAjAddr & "*" & fineFineLAddr & "*4/5"
                 End If
+            End If
+        Next r
+    End If
+
+    ' D列に「舗装復旧工」を含み、かつG列に「２－２号工」もしくは「１０－１号工」を
+    ' 含む行の「開粒度」列（１行目=開粒度、２行目=単位As量(t/m2)）に、開粒度単位As量の
+    ' 0.097セルを絶対参照する数式を入れる（全角/半角・ダッシュの表記ゆれを吸収）
+    Dim coarseAsCol As Long
+    coarseAsCol = FindHeaderColumnByRow1Row2(wsDest, extraCol, "開粒度", "単位As量(t/m2)")
+
+    If coarseAsCol > 0 Then
+        Dim coarseAsRefAddr As String
+        coarseAsRefAddr = wsDest.Cells(labelRow + 4, unitLabelCol + 1).Address(RowAbsolute:=True, ColumnAbsolute:=True)
+
+        For r = 3 To outRow - 1
+            If InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 4).Value)), "舗装復旧工", vbTextCompare) > 0 And _
+               (InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "2-2号工", vbTextCompare) > 0 Or _
+                InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "10-1号工", vbTextCompare) > 0) Then
+                wsDest.Cells(r, coarseAsCol).Formula = "=" & coarseAsRefAddr
             End If
         Next r
     End If
