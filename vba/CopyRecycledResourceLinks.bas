@@ -205,6 +205,21 @@ Sub CopyRecycledResourceLinks()
         End If
     Next r
 
+    ' D列に「殻運搬処理」を含み、かつE列またはH列に「Co」を含む行の
+    ' 「処分無筋Co量(m3)」列に、その行のL列を絶対参照する数式を入れる
+    Dim disposalConcreteCol As Long
+    disposalConcreteCol = FindHeaderColumn(wsDest, extraCol, "処分無筋Co量(m3)")
+
+    If disposalConcreteCol > 0 Then
+        For r = 3 To outRow - 1
+            If InStr(1, CStr(wsDest.Cells(r, 4).Value), "殻運搬処理", vbTextCompare) > 0 And _
+               (InStr(1, CStr(wsDest.Cells(r, 5).Value), "Co", vbTextCompare) > 0 Or _
+                InStr(1, CStr(wsDest.Cells(r, 8).Value), "Co", vbTextCompare) > 0) Then
+                wsDest.Cells(r, disposalConcreteCol).Formula = "=$L$" & r
+            End If
+        Next r
+    End If
+
     ' 粗粒度/密粒度/細粒度/開粒度/改質アスコン、各単位As量セルの横に、数値・単位・注記を記載
     Dim asValues As Variant
     asValues = Array("0.115", "0.118", "0.115", "0.097", "0.115")
@@ -285,3 +300,18 @@ Private Sub RenameHeaderIfPresent(ws As Worksheet, searchFromCol As Long, _
         End If
     Next c
 End Sub
+
+' ２行目が headerText と一致する列番号を返す。見つからなければ0を返す。
+Private Function FindHeaderColumn(ws As Worksheet, searchFromCol As Long, headerText As String) As Long
+    Dim lastCol As Long
+    lastCol = ws.Cells(2, ws.Columns.Count).End(xlToLeft).Column
+
+    Dim c As Long
+    For c = searchFromCol To lastCol
+        If CStr(ws.Cells(2, c).Value) = headerText Then
+            FindHeaderColumn = c
+            Exit Function
+        End If
+    Next c
+    FindHeaderColumn = 0
+End Function
