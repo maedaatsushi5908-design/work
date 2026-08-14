@@ -242,6 +242,25 @@ Sub CopyRecycledResourceLinks()
         Next r
     End If
 
+    ' D列に「舗装復旧工」を含み、かつG列に「５号工」もしくは「１０号工」を含む
+    ' 行の「細粒度」列（１行目=細粒度、２行目=単位As量(t/m2)）に、細粒度単位As量の
+    ' 0.115セルを絶対参照する数式を入れる（全角/半角・ダッシュの表記ゆれを吸収）
+    Dim fineFineAsCol As Long
+    fineFineAsCol = FindHeaderColumnByRow1Row2(wsDest, extraCol, "細粒度", "単位As量(t/m2)")
+
+    If fineFineAsCol > 0 Then
+        Dim fineFineAsRefAddr As String
+        fineFineAsRefAddr = wsDest.Cells(labelRow + 3, unitLabelCol + 1).Address(RowAbsolute:=True, ColumnAbsolute:=True)
+
+        For r = 3 To outRow - 1
+            If InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 4).Value)), "舗装復旧工", vbTextCompare) > 0 And _
+               (InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "5号工", vbTextCompare) > 0 Or _
+                InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "10号工", vbTextCompare) > 0) Then
+                wsDest.Cells(r, fineFineAsCol).Formula = "=" & fineFineAsRefAddr
+            End If
+        Next r
+    End If
+
     ' 粗粒度/密粒度/細粒度/開粒度/改質アスコン、各単位As量セルの横に、数値・単位・注記を記載
     Dim asValues As Variant
     asValues = Array("0.115", "0.118", "0.115", "0.097", "0.115")
