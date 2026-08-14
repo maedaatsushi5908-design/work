@@ -216,6 +216,8 @@ Sub CopyRecycledResourceLinks()
                 InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "3号工", vbTextCompare) > 0 Or _
                 InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 5).Value)), "10-1号工(乗入部)", vbTextCompare) > 0) Then
                 wsDest.Cells(r, roughAsCol).Formula = "=" & roughAsRefAddr
+                wsDest.Cells(r, roughAsCol + 1).Formula = "=" & wsDest.Cells(r, roughAsCol).Address(False, False) & _
+                                                           "*" & wsDest.Cells(r, 12).Address(False, False)
             End If
         Next r
     End If
