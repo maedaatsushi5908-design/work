@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v40"
+Const MACRO_VERSION As String = "v41"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -298,6 +298,20 @@ Sub CopyRecycledResourceLinks()
                (InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "2-2号工", vbTextCompare) > 0 Or _
                 InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "10-1号工", vbTextCompare) > 0) Then
                 wsDest.Cells(r, coarseAsCol).Formula = "=" & coarseAsRefAddr
+
+                ' 右隣（As量(t)列）に、G列の記載内容に応じた係数付きの数式を入れる
+                Dim coarseG As String
+                coarseG = NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value))
+
+                Dim coarseAlAddr As String, coarseLAddr As String
+                coarseAlAddr = wsDest.Cells(r, coarseAsCol).Address(False, False)
+                coarseLAddr = wsDest.Cells(r, 12).Address(False, False)
+
+                If InStr(1, coarseG, "2-2号工", vbTextCompare) > 0 Then
+                    wsDest.Cells(r, coarseAsCol + 1).Formula = "=" & coarseAlAddr & "*" & coarseLAddr & "*2"
+                ElseIf InStr(1, coarseG, "10-1号工", vbTextCompare) > 0 Then
+                    wsDest.Cells(r, coarseAsCol + 1).Formula = "=" & coarseAlAddr & "*" & coarseLAddr & "*4/5"
+                End If
             End If
         Next r
     End If
