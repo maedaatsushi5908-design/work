@@ -154,7 +154,6 @@ Sub CopyRecycledResourceLinks()
         ' 既に見出しがある古いレイアウトのシートには、不足している見出し列
         ' だけを実際に挿入して自動的に補う（列を挿入するので、３行目以降に
         ' 手入力された数量データも見出しと一緒に正しくずれる）
-        InsertMissingHeaderColumn wsDest, extraCol, "処分Co量(m3)", "単位As量(t/m2)"
         InsertMissingHeaderColumn wsDest, extraCol, "処分As量(t)", "単位砕石量(m3/m2)"
 
         ' 不要になった「砕石」「粒調砕石」の見出し列は自動的に削除する
@@ -166,6 +165,15 @@ Sub CopyRecycledResourceLinks()
         ' 「処分鉄筋Co量(m3)」列を自動的に挿入する
         RenameHeaderIfPresent wsDest, extraCol, "処分Co量(m3)", "処分無筋Co量(m3)"
         InsertMissingHeaderColumn wsDest, extraCol, "処分鉄筋Co量(m3)", "単位As量(t/m2)"
+
+        ' 過去の不具合で重複してできてしまった「処分Co量(m3)」列があれば、
+        ' 全て自動的に削除する（列を削除するので、右側は自動的に詰まる）
+        Dim staleCol As Long
+        Do
+            staleCol = FindHeaderColumn(wsDest, extraCol, "処分Co量(m3)")
+            If staleCol = 0 Then Exit Do
+            wsDest.Columns(staleCol).Delete Shift:=xlToLeft
+        Loop
     End If
 
     ' 材料数量集計用見出し（19列、extraCol～extraCol+18）のすぐ右の
