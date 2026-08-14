@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v37"
+Const MACRO_VERSION As String = "v38"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -335,15 +335,32 @@ End Function
 
 ' 全角英数字・記号を半角に揃え、長音記号やダッシュ類も半角ハイフンに
 ' 統一してから比較できるようにする（表記ゆれ対策）。
+' StrConv(vbNarrow)は環境によって全角英数字を変換しないことがあるため、
+' 文字コード（Unicode）を直接シフトして半角化する。
 Private Function NormalizeForMatch(ByVal s As String) As String
-    Dim t As String
-    t = StrConv(s, vbNarrow)
-    t = Replace(t, "－", "-")
-    t = Replace(t, "‐", "-")
-    t = Replace(t, "‑", "-")
-    t = Replace(t, "–", "-")
-    t = Replace(t, "—", "-")
-    t = Replace(t, "ー", "-")
-    t = Replace(t, "ｰ", "-")
-    NormalizeForMatch = t
+    Dim result As String
+    result = ""
+
+    Dim i As Long, code As Long, ch As String
+    For i = 1 To Len(s)
+        ch = Mid(s, i, 1)
+        code = AscW(ch)
+        If code >= &HFF01 And code <= &HFF5E Then
+            ' 全角の！～～（英数字・記号を含む）を半角へ
+            ch = ChrW(code - &HFEE0)
+        ElseIf code = &H3000 Then
+            ' 全角スペース -> 半角スペース
+            ch = " "
+        End If
+        result = result & ch
+    Next i
+
+    result = Replace(result, "‐", "-")
+    result = Replace(result, "‑", "-")
+    result = Replace(result, "–", "-")
+    result = Replace(result, "—", "-")
+    result = Replace(result, "ー", "-")
+    result = Replace(result, "ｰ", "-")
+
+    NormalizeForMatch = result
 End Function
