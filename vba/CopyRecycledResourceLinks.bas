@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v50"
+Const MACRO_VERSION As String = "v51"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -416,6 +416,30 @@ Sub CopyRecycledResourceLinks()
                     wsDest.Cells(r, gradedCrushedCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False) & _
                                                                  "*0.01*" & gradedCmNumber
                 End If
+            End If
+        Next r
+    End If
+
+    ' D列に「床掘」を含む行の「掘削土量(m3)」列に、＝L の数式を入れる
+    Dim excavationCol As Long
+    excavationCol = FindHeaderColumn(wsDest, extraCol, "掘削土量(m3)")
+
+    If excavationCol > 0 Then
+        For r = 3 To outRow - 1
+            If InStr(1, CStr(wsDest.Cells(r, 4).Value), "床掘", vbTextCompare) > 0 Then
+                wsDest.Cells(r, excavationCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False)
+            End If
+        Next r
+    End If
+
+    ' D列に「土砂等運搬」を含む行の「処分土量(m3)」列に、＝L の数式を入れる
+    Dim disposalSoilCol As Long
+    disposalSoilCol = FindHeaderColumn(wsDest, extraCol, "処分土量(m3)")
+
+    If disposalSoilCol > 0 Then
+        For r = 3 To outRow - 1
+            If InStr(1, CStr(wsDest.Cells(r, 4).Value), "土砂等運搬", vbTextCompare) > 0 Then
+                wsDest.Cells(r, disposalSoilCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False)
             End If
         Next r
     End If
