@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v47"
+Const MACRO_VERSION As String = "v48"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -141,8 +141,8 @@ Sub CopyRecycledResourceLinks()
     extraHeaders(13, 1) = "改質アスコン": extraHeaders(13, 2) = "単位As量(t/m2)"
     extraHeaders(14, 1) = "": extraHeaders(14, 2) = "As量(t)"
     extraHeaders(15, 1) = "": extraHeaders(15, 2) = "処分As量(t)"
-    extraHeaders(16, 1) = "": extraHeaders(16, 2) = "砕石量(m3/m2)"
-    extraHeaders(17, 1) = "": extraHeaders(17, 2) = "粒調砕石量(m3/m2)"
+    extraHeaders(16, 1) = "": extraHeaders(16, 2) = "再生砕石量(m3)"
+    extraHeaders(17, 1) = "": extraHeaders(17, 2) = "粒調砕石量(m3)"
     extraHeaders(18, 1) = "": extraHeaders(18, 2) = "掘削土量(m3)"
     extraHeaders(19, 1) = "": extraHeaders(19, 2) = "処分土量(m3)"
 
