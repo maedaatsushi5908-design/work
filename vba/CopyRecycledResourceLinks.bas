@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v51"
+Const MACRO_VERSION As String = "v52"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -18,7 +18,7 @@ Sub CopyRecycledResourceLinks()
 
     Dim keywords As Variant
     keywords = Array("街渠工", "舗装復旧工", "先行路盤工", "殻運搬処理", _
-                      "構造物とりこわし", "床掘", "土砂等運搬")
+                      "床掘", "土砂等運搬")
 
     Dim wb As Workbook
     Set wb = ActiveWorkbook
