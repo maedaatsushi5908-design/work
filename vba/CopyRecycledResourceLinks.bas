@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v56"
+Const MACRO_VERSION As String = "v57"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -18,7 +18,7 @@ Sub CopyRecycledResourceLinks()
 
     Dim keywords As Variant
     keywords = Array("街渠工", "舗装復旧工", "先行路盤工", "殻運搬処理", _
-                      "床掘", "土砂等運搬")
+                      "床掘", "土砂運搬処理")
 
     Dim wb As Workbook
     Set wb = ActiveWorkbook
@@ -432,13 +432,13 @@ Sub CopyRecycledResourceLinks()
         Next r
     End If
 
-    ' D列に「土砂等運搬」を含む行の「処分土量(m3)」列に、＝L の数式を入れる
+    ' D列に「土砂運搬処理」を含む行の「処分土量(m3)」列に、＝L の数式を入れる
     Dim disposalSoilCol As Long
     disposalSoilCol = FindHeaderColumn(wsDest, extraCol, "処分土量(m3)")
 
     If disposalSoilCol > 0 Then
         For r = 3 To outRow - 1
-            If InStr(1, CStr(wsDest.Cells(r, 4).Value), "土砂等運搬", vbTextCompare) > 0 Then
+            If InStr(1, CStr(wsDest.Cells(r, 4).Value), "土砂運搬処理", vbTextCompare) > 0 Then
                 wsDest.Cells(r, disposalSoilCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False)
             End If
         Next r
