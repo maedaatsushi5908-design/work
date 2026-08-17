@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v58"
+Const MACRO_VERSION As String = "v59"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -109,6 +109,17 @@ Sub 再生資源()
                     Exit For
                 End If
             Next i
+
+            ' E～H列のいずれかに「発生材」を含む行は対象から除外する
+            If matched Then
+                Dim ecol As Long
+                For ecol = 5 To 8
+                    If InStr(1, CStr(wsSrc.Cells(r, ecol).Value), "発生材", vbTextCompare) > 0 Then
+                        matched = False
+                        Exit For
+                    End If
+                Next ecol
+            End If
 
             If matched Then
                 ' 行全体（全列）をセル参照の数式でコピー
