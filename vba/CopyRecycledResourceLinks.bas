@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v52"
+Const MACRO_VERSION As String = "v53"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -453,6 +453,16 @@ Sub CopyRecycledResourceLinks()
         wsDest.Cells(labelRow + i, unitLabelCol + 2).Value = "t/m2"
         wsDest.Cells(labelRow + i, unitLabelCol + 3).Value = "t=5cm"
     Next i
+
+    ' データ最終行の次の行（outRow）に、AB〜AT列（extraCol〜extraCol+18）
+    ' それぞれのSUM式を入れる
+    Dim sumRow As Long
+    sumRow = outRow
+
+    For c = extraCol To extraCol + 18
+        wsDest.Cells(sumRow, c).Formula = "=SUM(" & wsDest.Cells(3, c).Address(False, False) & _
+                                           ":" & wsDest.Cells(outRow - 1, c).Address(False, False) & ")"
+    Next c
 
     wsDest.Columns.AutoFit
 
