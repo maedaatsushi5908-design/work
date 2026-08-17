@@ -2,14 +2,14 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v57"
+Const MACRO_VERSION As String = "v58"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
 ' セル参照の数式（=ファイル名!$A$5 形式）として
 ' 「再生資源」シート（無ければ新規作成）へコピーする。
 ' 数式で参照するため、元データを変更すると自動的に反映される。
-Sub CopyRecycledResourceLinks()
+Sub 再生資源()
 
     Const SRC_SHEET_NAME As String = "ファイル名"
     Const DEST_SHEET_NAME As String = "再生資源"
