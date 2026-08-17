@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v48"
+Const MACRO_VERSION As String = "v49"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -380,6 +380,26 @@ Sub CopyRecycledResourceLinks()
         Next r
     End If
 
+    ' D列に「先行路盤」を含み、かつG列に「再生砕石」を含む行の「再生砕石量(m3)」
+    ' 列に、＝L×0.01×(G列のcmの直前の数値) の数式を入れる（全角/半角の表記ゆれを吸収）
+    Dim recycledCrushedCol As Long
+    recycledCrushedCol = FindHeaderColumn(wsDest, extraCol, "再生砕石量(m3)")
+
+    If recycledCrushedCol > 0 Then
+        For r = 3 To outRow - 1
+            If InStr(1, CStr(wsDest.Cells(r, 4).Value), "先行路盤", vbTextCompare) > 0 And _
+               InStr(1, CStr(wsDest.Cells(r, 7).Value), "再生砕石", vbTextCompare) > 0 Then
+                Dim recycledCmNumber As String
+                recycledCmNumber = ExtractNumberBeforeUnit(NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "cm")
+
+                If Len(recycledCmNumber) > 0 Then
+                    wsDest.Cells(r, recycledCrushedCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False) & _
+                                                                   "*0.01*" & recycledCmNumber
+                End If
+            End If
+        Next r
+    End If
+
     ' 粗粒度/密粒度/細粒度/開粒度/改質アスコン、各単位As量セルの横に、数値・単位・注記を記載
     Dim asValues As Variant
     asValues = Array("0.115", "0.118", "0.115", "0.097", "0.115")
@@ -466,4 +486,32 @@ Private Function NormalizeForMatch(ByVal s As String) As String
     result = Replace(result, "㎥", "m3")
 
     NormalizeForMatch = result
+End Function
+
+' normalizedText内でunitText（例："cm"）の直前に連続する数字（と小数点）を取り出す。
+' 見つからなければ空文字を返す。
+Private Function ExtractNumberBeforeUnit(ByVal normalizedText As String, ByVal unitText As String) As String
+    Dim pos As Long
+    pos = InStr(1, normalizedText, unitText, vbTextCompare)
+    If pos = 0 Then
+        ExtractNumberBeforeUnit = ""
+        Exit Function
+    End If
+
+    Dim numStr As String
+    numStr = ""
+
+    Dim j As Long, ch As String
+    j = pos - 1
+    Do While j >= 1
+        ch = Mid(normalizedText, j, 1)
+        If (ch >= "0" And ch <= "9") Or ch = "." Then
+            numStr = ch & numStr
+            j = j - 1
+        Else
+            Exit Do
+        End If
+    Loop
+
+    ExtractNumberBeforeUnit = numStr
 End Function
