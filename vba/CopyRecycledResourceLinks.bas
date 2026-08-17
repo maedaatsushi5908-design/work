@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v49"
+Const MACRO_VERSION As String = "v50"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -395,6 +395,26 @@ Sub CopyRecycledResourceLinks()
                 If Len(recycledCmNumber) > 0 Then
                     wsDest.Cells(r, recycledCrushedCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False) & _
                                                                    "*0.01*" & recycledCmNumber
+                End If
+            End If
+        Next r
+    End If
+
+    ' D列に「先行路盤」を含み、かつG列に「粒調砕石」を含む行の「粒調砕石量(m3)」
+    ' 列に、＝L×0.01×(G列のcmの直前の数値) の数式を入れる（全角/半角の表記ゆれを吸収）
+    Dim gradedCrushedCol As Long
+    gradedCrushedCol = FindHeaderColumn(wsDest, extraCol, "粒調砕石量(m3)")
+
+    If gradedCrushedCol > 0 Then
+        For r = 3 To outRow - 1
+            If InStr(1, CStr(wsDest.Cells(r, 4).Value), "先行路盤", vbTextCompare) > 0 And _
+               InStr(1, CStr(wsDest.Cells(r, 7).Value), "粒調砕石", vbTextCompare) > 0 Then
+                Dim gradedCmNumber As String
+                gradedCmNumber = ExtractNumberBeforeUnit(NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "cm")
+
+                If Len(gradedCmNumber) > 0 Then
+                    wsDest.Cells(r, gradedCrushedCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False) & _
+                                                                 "*0.01*" & gradedCmNumber
                 End If
             End If
         Next r
