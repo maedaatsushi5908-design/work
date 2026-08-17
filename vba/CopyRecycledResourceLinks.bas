@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v54"
+Const MACRO_VERSION As String = "v55"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -131,15 +131,15 @@ Sub CopyRecycledResourceLinks()
     extraHeaders(3, 1) = "": extraHeaders(3, 2) = "処分無筋Co量(m3)"
     extraHeaders(4, 1) = "": extraHeaders(4, 2) = "処分鉄筋Co量(m3)"
     extraHeaders(5, 1) = "粗粒度": extraHeaders(5, 2) = "単位As量(t/m2)"
-    extraHeaders(6, 1) = "": extraHeaders(6, 2) = "As量(t)"
+    extraHeaders(6, 1) = "粗粒度": extraHeaders(6, 2) = "As量(t)"
     extraHeaders(7, 1) = "密粒度": extraHeaders(7, 2) = "単位As量(t/m2)"
-    extraHeaders(8, 1) = "": extraHeaders(8, 2) = "As量(t)"
+    extraHeaders(8, 1) = "密粒度": extraHeaders(8, 2) = "As量(t)"
     extraHeaders(9, 1) = "細粒度": extraHeaders(9, 2) = "単位As量(t/m2)"
-    extraHeaders(10, 1) = "": extraHeaders(10, 2) = "As量(t)"
+    extraHeaders(10, 1) = "細粒度": extraHeaders(10, 2) = "As量(t)"
     extraHeaders(11, 1) = "開粒度": extraHeaders(11, 2) = "単位As量(t/m2)"
-    extraHeaders(12, 1) = "": extraHeaders(12, 2) = "As量(t)"
+    extraHeaders(12, 1) = "開粒度": extraHeaders(12, 2) = "As量(t)"
     extraHeaders(13, 1) = "改質アスコン": extraHeaders(13, 2) = "単位As量(t/m2)"
-    extraHeaders(14, 1) = "": extraHeaders(14, 2) = "As量(t)"
+    extraHeaders(14, 1) = "改質アスコン": extraHeaders(14, 2) = "As量(t)"
     extraHeaders(15, 1) = "": extraHeaders(15, 2) = "処分As量(t)"
     extraHeaders(16, 1) = "": extraHeaders(16, 2) = "再生砕石量(m3)"
     extraHeaders(17, 1) = "": extraHeaders(17, 2) = "粒調砕石量(m3)"
