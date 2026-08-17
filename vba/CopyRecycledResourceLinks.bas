@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v45"
+Const MACRO_VERSION As String = "v46"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -157,7 +157,8 @@ Sub CopyRecycledResourceLinks()
     ' 再実行しても列がずれたり増えたりしない
     Dim unitLabels As Variant
     unitLabels = Array("単位Co量(m3/施工単位)", "粗粒度単位As量(t/m2)", "密粒度単位As量(t/m2)", _
-                        "細粒度単位As量(t/m2)", "開粒度単位As量(t/m2)", "改質アスコン単位As量(t/m2)")
+                        "細粒度単位As量(t/m2)", "開粒度単位As量(t/m2)", "改質アスコン単位As量(t/m2)", _
+                        "処分As単位量(t/m3)")
 
     Dim unitLabelCol As Long
     unitLabelCol = extraCol + 19
@@ -172,6 +173,12 @@ Sub CopyRecycledResourceLinks()
     wsDest.Cells(labelRow, unitLabelCol + 1).Value = "0.138"
     wsDest.Cells(labelRow, unitLabelCol + 2).Value = "m3/m"
     wsDest.Cells(labelRow, unitLabelCol + 3).Value = "標準図 NG-L-FA参照"
+
+    ' 「改質アスコン単位As量」の下の「処分As単位量(t/m3)」セルの横に、
+    ' 数値・単位・注記を記載
+    wsDest.Cells(labelRow + 6, unitLabelCol + 1).Value = "2.30"
+    wsDest.Cells(labelRow + 6, unitLabelCol + 2).Value = "t/m3"
+    wsDest.Cells(labelRow + 6, unitLabelCol + 3).Value = "(歩車道密粒細粒などの平均として)"
 
     ' D列に「街渠工」を含む行の「単位Co量」列（extraCol）に、
     ' 上で記載した0.138セルを絶対参照する数式を入れる
