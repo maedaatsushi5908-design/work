@@ -2,7 +2,7 @@ Option Explicit
 
 ' コードの版数。貼り替え忘れの確認用に、更新のたびに増やす。
 ' 実行後のメッセージボックスにこの番号が表示される。
-Const MACRO_VERSION As String = "v44"
+Const MACRO_VERSION As String = "v45"
 
 ' 「ファイル名」シートの２行目で「施工単価名称」列を探し、
 ' そのセルの文字列に指定キーワードを含む行を丸ごと、
@@ -348,6 +348,23 @@ Sub CopyRecycledResourceLinks()
                 wsDest.Cells(r, modifiedAsCol).Formula = "=" & modifiedAsRefAddr
                 wsDest.Cells(r, modifiedAsCol + 1).Formula = "=" & wsDest.Cells(r, modifiedAsCol).Address(False, False) & _
                                                               "*" & wsDest.Cells(r, 12).Address(False, False)
+            End If
+        Next r
+    End If
+
+    ' D列に「殻運搬処理」を含み、かつE列・F列・G列・H列のいずれかに「As」を
+    ' 含む行の「処分As量(t)」列に、＝L列 の数式を入れる（全角/半角の表記ゆれを吸収）
+    Dim disposalAsCol As Long
+    disposalAsCol = FindHeaderColumn(wsDest, extraCol, "処分As量(t)")
+
+    If disposalAsCol > 0 Then
+        For r = 3 To outRow - 1
+            If InStr(1, CStr(wsDest.Cells(r, 4).Value), "殻運搬処理", vbTextCompare) > 0 And _
+               (InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 5).Value)), "As", vbTextCompare) > 0 Or _
+                InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 6).Value)), "As", vbTextCompare) > 0 Or _
+                InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 7).Value)), "As", vbTextCompare) > 0 Or _
+                InStr(1, NormalizeForMatch(CStr(wsDest.Cells(r, 8).Value)), "As", vbTextCompare) > 0) Then
+                wsDest.Cells(r, disposalAsCol).Formula = "=" & wsDest.Cells(r, 12).Address(False, False)
             End If
         Next r
     End If
