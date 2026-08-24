@@ -6,3 +6,7 @@ __pycache__/
 *.pkl
 cache/
 output/
+
+# Excel の一時ファイル・ロックファイル
+~$*
+*.tmp
