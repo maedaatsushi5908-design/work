@@ -63,6 +63,9 @@ Private Const LNK_FIRST As Long = 30
 
 Private Const TERM_PAT As String = "'([^']+)'!(\$?[A-Z]{1,3}\$?[0-9]+)"
 
+' 埋められなかった黄色いセル。実行結果シートに出す。
+Private mUnfilled As Collection
+
 ' 列1つ分
 Private Type TCol
     Letter  As String
@@ -219,7 +222,7 @@ Public Sub 総括表の数式を作り直す()
     Dim ws As Worksheet, cfg As Worksheet
     Dim srcName As String, msg As String
     Dim nExp As Long, nFix As Long, nSkip As Long, nCond As Long, nGuess As Long
-    Dim changes() As TChange, nChg As Long, nDiff As Long
+    Dim changes() As TChange, nChg As Long, nDiff As Long, nLeft As Long
     Dim scr As Boolean, calc As XlCalculation
 
     ' --- 対象シートを決める ------------------------------------------
@@ -278,7 +281,7 @@ Public Sub 総括表の数式を作り直す()
     Application.Calculation = xlCalculationManual
 
     BackupSheet ws
-    nChg = WriteAll(cfg, ws, changes)
+    nChg = WriteAll(cfg, ws, changes, nLeft)
 
     Application.Calculation = calc      ' 元の計算モードに戻す
     Application.CalculateFull
@@ -290,6 +293,7 @@ Public Sub 総括表の数式を作り直す()
 
     ' --- 4. 変わったところを見せて、取り消せるようにする ----------------
     If nDiff = 0 Then
+        DropConfigIfClean nLeft
         MsgBox nChg & " 個のセルに数式を入れました。" & vbCrLf & _
                "値が変わったセルはありません。" & vbCrLf & vbCrLf & _
                "詳しくは「" & REP_SHEET & "」シートを見てください。", _
@@ -311,6 +315,7 @@ Public Sub 総括表の数式を作り直す()
                    "もう一度実行してください。", vbInformation, "取り消し"
             Exit Sub
         End If
+        DropConfigIfClean nLeft
         MsgBox "確定しました。" & vbCrLf & _
                "元の状態は BK_ で始まるシートに残っています。", vbInformation, "完了"
     End If
@@ -581,7 +586,7 @@ End Sub
 ' 3. 書き込み
 '==================================================================
 Private Function WriteAll(ByVal cfg As Worksheet, ByVal ws As Worksheet, _
-                          ByRef changes() As TChange) As Long
+                          ByRef changes() As TChange, ByRef nLeft As Long) As Long
     Dim r As Long, lastRow As Long, n As Long
     Dim diaOf As Object, colsOfKei As Object
     Dim thkColW As String
@@ -677,6 +682,9 @@ NextCol:
 NextRow:
     Next r
 
+    ' 黄色い「入力セル」も、条件式で埋められるものは埋める
+    FillYellow cfg, ws, changes, n, thkColW, diaOf, nLeft
+
     ' 書き込み後の値を控える
     Application.Calculate
     Dim i As Long
@@ -686,6 +694,147 @@ NextRow:
 
     WriteAll = n
 End Function
+
+'------------------------------------------------------------------
+' 黄色い「入力セル」を条件式で埋める
+'
+' 総括表では、各計算書から値を写す場所が黄色く塗ってある（凡例の
+' 「入力セル（各数量計算書の数量を転記間違いないように！）」）。
+' つまり黄色は「ここに値が入る」という作成者自身の指定なので、
+' 推測せずにそこだけを埋める。
+'
+' 転記元シートは、行の近くにある同じ系統のリンクから接頭辞を借り、
+' 口径は列から取る。舗装版破砕は 舗 シート、土量は 土 シートと
+' 行によって系統の中でも参照先が変わるため、列だけでは決められない。
+'------------------------------------------------------------------
+Private Sub FillYellow(ByVal cfg As Worksheet, ByVal ws As Worksheet, _
+                       ByRef changes() As TChange, ByRef n As Long, _
+                       ByVal thkColW As String, ByVal diaOf As Object, _
+                       ByRef nLeft As Long)
+    Dim c As Range, r As Long, lastRow As Long
+    Dim kndColW As String, kei As String, colL As String
+    Dim rows_ As Collection, keis As Collection, pres As Collection
+
+    kndColW = Trim$(CStr(cfg.Range("D3").Value))
+    If Len(kndColW) = 0 Then kndColW = "E"
+
+    ' 設定から「行 → 系統 → 接頭辞」を集める
+    Set rows_ = New Collection: Set keis = New Collection: Set pres = New Collection
+    lastRow = cfg.Cells(cfg.Rows.Count, 5).End(xlUp).Row
+    For r = LNK_FIRST To lastRow
+        Dim pre As String
+        pre = PrefixOf(Trim$(CStr(cfg.Cells(r, 10).Value)))
+        If Len(pre) > 0 Then
+            rows_.Add Val(cfg.Cells(r, 5).Value)
+            keis.Add Trim$(CStr(cfg.Cells(r, 8).Value))
+            pres.Add pre
+        End If
+    Next r
+    If rows_.Count = 0 Then Exit Sub
+
+    Set mUnfilled = New Collection
+
+    For Each c In ws.UsedRange
+        If Not IsYellow(c) Then GoTo NextCell
+        If c.HasFormula Then GoTo NextCell
+
+        colL = Split(c.Address(True, False), "$")(0)
+
+        Dim thk As Variant: thk = ws.Cells(c.Row, ColToNum(thkColW)).Value
+        If Not IsNumeric(thk) Then GoTo NextCell
+        Dim kind As String: kind = KindOf(ws, c.Row, ColToNum(kndColW))
+        If Len(kind) = 0 Then GoTo NextCell
+
+        kei = KeiOf(ws, c.Column)
+
+        ' 転記元シートの決め方は2通り。
+        '   口径のある系統 … 近くの同系統リンクから接頭辞を借り、口径を足す
+        '   口径の無い系統 … 見出しの系統名でシートを直に探す（仮配管 → 仮配（舗）
+        Dim sn As String
+        sn = ""
+        If diaOf.Exists(colL) Then
+            If Len(CStr(diaOf(colL))) > 0 Then
+                pre = NearestPrefix(rows_, keis, pres, c.Row, kei)
+                If Len(pre) > 0 Then sn = pre & CStr(diaOf(colL))
+            End If
+        End If
+        If Len(sn) = 0 Then sn = SheetByKei(kei)
+
+        If Len(sn) = 0 Then
+            mUnfilled.Add Array(c.Address(False, False), kei, _
+                "転記元シートを決められません（同じ系統のリンクも、名前の合うシートも無い）")
+            nLeft = nLeft + 1
+            GoTo NextCell
+        End If
+
+        Dim why As String, newF As String
+        newF = BuildSumifs("='" & sn & "'!A1", "", "$" & thkColW & c.Row, kind, why)
+        If Len(newF) = 0 Then
+            mUnfilled.Add Array(c.Address(False, False), kei, why)
+            nLeft = nLeft + 1
+            GoTo NextCell
+        End If
+
+        If n > UBound(changes) Then ReDim Preserve changes(0 To n + 200)
+        changes(n).Row_ = c.Row
+        changes(n).Col_ = c.Column
+        changes(n).OldF = c.Formula
+        changes(n).OldV = NumOrEmpty(c)
+        changes(n).NewF = newF
+
+        On Error Resume Next
+        c.Formula = newF
+        If Err.Number <> 0 Then
+            Err.Clear
+            On Error GoTo 0
+            GoTo NextCell
+        End If
+        On Error GoTo 0
+        n = n + 1
+        If Len(why) > 0 Then mUnfilled.Add Array(c.Address(False, False), kei, why)
+NextCell:
+    Next c
+End Sub
+
+' 純粋な黄色（入力セルの目印）か
+Private Function IsYellow(ByVal c As Range) As Boolean
+    On Error Resume Next
+    If c.Interior.Pattern = xlNone Then Exit Function
+    IsYellow = (c.Interior.Color = RGB(255, 255, 0))
+    On Error GoTo 0
+End Function
+
+' 同じ系統で、行がいちばん近いリンクの接頭辞を返す
+Private Function NearestPrefix(ByVal rows_ As Collection, ByVal keis As Collection, _
+                               ByVal pres As Collection, ByVal r As Long, _
+                               ByVal kei As String) As String
+    Dim i As Long, best As Long, bestPre As String
+    best = 999999
+    For i = 1 To rows_.Count
+        If Norm(keis(i)) = Norm(kei) Then
+            Dim d As Long: d = Abs(CLng(rows_(i)) - r)
+            If d < best Then
+                best = d
+                bestPre = CStr(pres(i))
+            End If
+        End If
+    Next i
+    NearestPrefix = bestPre
+End Function
+
+'------------------------------------------------------------------
+' 手直しが要らないなら「リンク設定」シートは残さない。
+' 毎回いまの数式から作り直せるので、置いておく意味がないため。
+' 埋められなかった箇所があるときだけ、手がかりとして残す。
+'------------------------------------------------------------------
+Private Sub DropConfigIfClean(ByVal nLeft As Long)
+    If nLeft > 0 Then Exit Sub
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    ThisWorkbook.Worksheets(LNK_SHEET).Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+End Sub
 
 Private Function CountDiff(ByRef changes() As TChange, ByVal n As Long) As Long
     Dim i As Long, c As Long
@@ -758,6 +907,26 @@ NextChange:
     If r = 5 Then
         rep.Cells(5, 1).Value = "（値が変わったセルはありません）"
         r = 6
+    End If
+
+    ' --- 埋められなかった黄色いセル -----------------------------------
+    If Not mUnfilled Is Nothing Then
+        If mUnfilled.Count > 0 Then
+            r = r + 2
+            rep.Cells(r, 1).Value = "【入力セル（黄色）で気になったもの】"
+            rep.Cells(r, 1).Font.Bold = True
+            r = r + 1
+            WriteRow rep, r, Array("セル", "系統", "理由")
+            StyleHeader rep.Range(rep.Cells(r, 1), rep.Cells(r, 3))
+            r = r + 1
+            For i = 1 To mUnfilled.Count
+                rep.Cells(r, 1).Value = mUnfilled(i)(0)
+                rep.Cells(r, 2).Value = mUnfilled(i)(1)
+                rep.Cells(r, 3).Value = mUnfilled(i)(2)
+                rep.Cells(r, 3).Interior.Color = RGB(255, 235, 156)
+                r = r + 1
+            Next i
+        End If
     End If
 
     ' --- 点検：中身があるのにリンクされていないシート --------------------
@@ -893,10 +1062,15 @@ Private Function BuildSumifs(ByVal tmpl As String, ByVal dia As String, _
     Dim r0 As Long, r1 As Long, aT As Long, aS As Long, cT As Long, cS As Long
 
     why = ""
-    pre = PrefixOf(tmpl)
-    If Len(pre) = 0 Then why = "シート名を取り出せません": Exit Function
-
-    sn = pre & dia
+    If Len(dia) = 0 Then
+        ' 口径が無い系統は、テンプレートのシート名をそのまま使う
+        sn = SheetInFormula(tmpl)
+        If Len(sn) = 0 Then why = "シート名を取り出せません": Exit Function
+    Else
+        pre = PrefixOf(tmpl)
+        If Len(pre) = 0 Then why = "シート名を取り出せません": Exit Function
+        sn = pre & dia
+    End If
     If Not FindBlock(sn, r0, r1, aT, aS, cT, cS) Then
         why = "舗装版破砕工のブロックが見つかりません(" & sn & ")"
         Exit Function
@@ -908,8 +1082,67 @@ Private Function BuildSumifs(ByVal tmpl As String, ByVal dia As String, _
         out = out & SumifsTerm(sn, cS, cT, r0, r1, thkRef)
     End If
 
-    If Len(out) = 0 Then why = "種別が As でも Co でもありません(" & kind & ")": Exit Function
+    If Len(out) = 0 Then
+        If InStr(kind, "Co") > 0 And cS = 0 Then
+            why = sn & " に Co 側の欄が無いため埋められません"
+        Else
+            why = "種別が As でも Co でもありません(" & kind & ")"
+        End If
+        Exit Function
+    End If
+    If InStr(kind, "Co") > 0 And cS = 0 Then
+        why = "注意: " & sn & " に Co 側の欄が無いため As だけを合計しています"
+    End If
     BuildSumifs = "=" & out
+End Function
+
+' 系統名に合う転記元シートを1つだけ見つける
+'
+'   1. 名前がそのまま一致するシート（給水2度 → 給水2度）
+'   2. 舗装版破砕のブロックを持つシートのうち、括弧より前が
+'      系統名の先頭に一致するもの（仮配管 → 仮配（舗）
+'
+' 2文字だけで照合すると 給水2度 と 給水付替 が同じシートに当たるため、
+' 括弧より前の全体で照合し、1つに絞れたときだけ採用する。
+Private Function SheetByKei(ByVal kei As String) As String
+    Dim sh As Worksheet, k As String, hit As String, n As Long, tok As String
+    k = Norm(kei)
+    If Len(k) = 0 Then Exit Function
+
+    For Each sh In ThisWorkbook.Worksheets
+        If Norm(sh.Name) = k Then SheetByKei = sh.Name: Exit Function
+    Next sh
+
+    For Each sh In ThisWorkbook.Worksheets
+        tok = LeadToken(sh.Name)
+        If Len(tok) >= 2 Then
+            If Left$(k, Len(tok)) = tok Then
+                If HasBreakBlock(sh.Name) Then
+                    hit = sh.Name
+                    n = n + 1
+                End If
+            End If
+        End If
+    Next sh
+    If n = 1 Then SheetByKei = hit
+End Function
+
+' シート名の括弧より前  仮配（舗 → 仮配
+Private Function LeadToken(ByVal s As String) As String
+    Dim t As String, p As Long
+    t = Norm(s)
+    p = InStr(t, "(")
+    If p = 0 Then p = InStr(t, ChrW(&HFF08))
+    If p > 0 Then t = Left$(t, p - 1)
+    LeadToken = t
+End Function
+
+Private Function SheetInFormula(ByVal f As String) As String
+    Dim re As Object, ms As Object
+    Set re = CreateObject("VBScript.RegExp")
+    re.Pattern = "'([^']+)'!"
+    Set ms = re.Execute(f)
+    If ms.Count > 0 Then SheetInFormula = ms(0).SubMatches(0)
 End Function
 
 Private Function SumifsTerm(ByVal sn As String, ByVal sumCol As Long, ByVal thkCol As Long, _
