@@ -649,13 +649,17 @@ Private Function KeiOf(ByVal ws As Worksheet, ByVal col As Long) As String
 End Function
 
 Private Function SumOfCols(ByVal ws As Worksheet, ByVal r As Long, ByVal cols As String) As Variant
-    Dim tc As Variant, tot As Double, any As Boolean
+    ' any ‚Í VBA ‚Ì—\–ñŒê‚È‚Ì‚ÅŽg‚¦‚È‚¢
+    Dim tc As Variant, tot As Double, found As Boolean
     For Each tc In Split(cols, ",")
         Dim v As Variant
         v = NumOrEmpty(ws.Cells(r, ColToNum(Trim$(CStr(tc)))))
-        If Not IsEmpty(v) Then tot = tot + CDbl(v): any = True
+        If Not IsEmpty(v) Then
+            tot = tot + CDbl(v)
+            found = True
+        End If
     Next tc
-    If any Then SumOfCols = tot Else SumOfCols = Empty
+    If found Then SumOfCols = tot Else SumOfCols = Empty
 End Function
 
 Private Function DiaRowOf(ByVal cfg As Worksheet, ByVal colL As String) As Long
