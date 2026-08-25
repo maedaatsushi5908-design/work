@@ -13,10 +13,19 @@ Attribute VB_Name = "M_Link"
 ' 二重計上になるため、取り込み時に展開の可否を判定して分ける。
 '
 '   マクロ:
-'     リンク設定を取り込む      今あるリンクを読み取って設定シートを作る
-'     直接リンクで数式を作る    ='試掘（舗400'!P4 の形。参照先が読める（推奨）
-'     INDIRECTで数式を作る      設定の口径を変えるだけで繋ぎ変わる形
-'     リンクを点検              参照先が空・シート欠落・張り忘れを調べる
+'     リンク設定を取り込む   今あるリンクを読み取って設定シートを作る
+'     数式を作る             設定どおりに数式を書き込む
+'     リンクを点検           参照先が空・シート欠落・張り忘れを調べる
+'
+' 数式は2種類。取り込み時にどちらかを自動で割り当てる。
+'
+'   直接   ='試掘（舗400'!P4
+'          転記元の並びが固定の箇所（舗装切断工など）に使う。
+'
+'   条件式 =SUMIFS('管工（舗50'!$T$16:$T$22,'管工（舗50'!$R$16:$R$22,$I31)
+'          舗装版破砕工のブロックは、舗装厚が工事ごとに詰められて
+'          並ぶため、同じセルを見ていると別の厚さの数量を拾ってしまう。
+'          総括表の厚さ欄（I列）と一致する行を探して合計する。
 '==================================================================
 Option Explicit
 
@@ -48,7 +57,8 @@ Public Sub リンク設定を取り込む()
     Dim cols() As TCol, nCol As Long
     Dim grp As Object, keys As Object
     Dim i As Long, r As Long, n As Long
-    Dim nExp As Long, nFix As Long, nSkip As Long
+    Dim nExp As Long, nFix As Long, nSkip As Long, nCond As Long
+    Dim thkCol As String, kndCol As String
 
     srcName = AskTargetSheet()
     If Len(srcName) = 0 Then Exit Sub
@@ -59,6 +69,10 @@ Public Sub リンク設定を取り込む()
     End If
 
     ' grp: "行|系統" → Array(列の並び, テンプレート, 口径, 状態, 理由)
+    ' 厚さ欄・種別欄の列。見出しから探し、見つからなければ既定値
+    thkCol = FindLabelCol(ws, "舗装厚", "I")
+    kndCol = FindLabelCol(ws, "摘", "E")
+
     Set grp = CreateObject("Scripting.Dictionary")
     Set keys = CreateObject("Scripting.Dictionary")   ' "系統|接頭辞|セル" → 行の集合
 
@@ -164,6 +178,12 @@ NextCell:
     Set cfg = ResetConfigSheet()
     cfg.Range("A2").Value = "対象シート"
     cfg.Range("B2").Value = ws.Name
+    cfg.Range("A3").Value = "厚さ列"
+    cfg.Range("B3").Value = thkCol
+    cfg.Range("C3").Value = "種別列"
+    cfg.Range("D3").Value = kndCol
+    cfg.Range("B3").Interior.Color = RGB(255, 242, 204)
+    cfg.Range("D3").Interior.Color = RGB(255, 242, 204)
 
     cfg.Range("A4").Value = "【口径対応表】　口径を書き換えると、その列のリンクが全部その口径に切り替わります。空欄の列には数式を入れません"
     cfg.Range("A4").Font.Bold = True
@@ -191,9 +211,9 @@ NextCell:
     ' --- リンク一覧 --------------------------------------------------
     cfg.Cells(LNK_HDR - 2, 1).Value = "【リンク一覧】　展開に○が付いた行は、同じ系統の全ての口径列に数式を入れます"
     cfg.Cells(LNK_HDR - 2, 1).Font.Bold = True
-    WriteRow cfg, LNK_HDR, Array("No", "有効", "展開", "対象行", "系統", "今ある列", _
-                                 "テンプレート", "取り込み時の値", "判定", "備考")
-    StyleHeader cfg.Range(cfg.Cells(LNK_HDR, 1), cfg.Cells(LNK_HDR, 10))
+    WriteRow cfg, LNK_HDR, Array("No", "有効", "展開", "方式", "対象行", "厚さ", "種別", "系統", _
+                                 "今ある列", "テンプレート", "取り込み時の値", "判定", "備考")
+    StyleHeader cfg.Range(cfg.Cells(LNK_HDR, 1), cfg.Cells(LNK_HDR, 13))
 
     r = LNK_FIRST
     Dim sk As Variant
@@ -205,35 +225,56 @@ NextCell:
         ' 列ごとに参照セルが違う行は、1つのテンプレートで書くと値が壊れる。
         ' 書き込み対象から外し、手作業のまま残す。
         cfg.Cells(r, 2).Value = IIf(gg(3) = "NG_SIG", "", "○")
-        cfg.Cells(r, 4).Value = gr
-        cfg.Cells(r, 5).Value = Split(sk, "|")(1)
-        cfg.Cells(r, 6).Value = gg(0)
-        cfg.Cells(r, 7).Value = "'" & gg(2)
-        cfg.Cells(r, 8).Value = SumOfCols(ws, gr, CStr(gg(0)))
+
+        Dim thk As Variant, knd As String, firstCol As String, firstDia As String
+        thk = ws.Cells(gr, ColToNum(thkCol)).Value
+        knd = KindOf(ws, gr, ColToNum(kndCol))
+        firstCol = Split(CStr(gg(0)), ",")(0)
+        firstDia = DiaOfCol(cols, nCol, firstCol)
+
+        ' 舗装版破砕工のブロックを参照していて、厚さが数値なら条件式にする
+        If IsNumeric(thk) And Len(firstDia) > 0 And Len(knd) > 0 Then
+            If HasBreakBlock(PrefixOf(CStr(gg(2))) & firstDia) Then
+                cfg.Cells(r, 4).Value = "条件式"
+                nCond = nCond + 1
+            Else
+                cfg.Cells(r, 4).Value = "直接"
+            End If
+        Else
+            cfg.Cells(r, 4).Value = "直接"
+        End If
+
+        cfg.Cells(r, 5).Value = gr
+        If IsNumeric(thk) Then cfg.Cells(r, 6).Value = thk
+        cfg.Cells(r, 7).Value = knd
+        cfg.Cells(r, 8).Value = Split(sk, "|")(1)
+        cfg.Cells(r, 9).Value = gg(0)
+        cfg.Cells(r, 10).Value = "'" & gg(2)
+        cfg.Cells(r, 11).Value = SumOfCols(ws, gr, CStr(gg(0)))
 
         If gg(3) = "OK" Then
             cfg.Cells(r, 3).Value = "○"
-            cfg.Cells(r, 9).Value = "展開可"
+            cfg.Cells(r, 12).Value = "展開可"
             nExp = nExp + 1
         ElseIf gg(3) = "NG_SIG" Then
             cfg.Cells(r, 3).Value = ""
-            cfg.Cells(r, 9).Value = "対象外"
-            cfg.Cells(r, 9).Interior.Color = RGB(255, 199, 206)
-            cfg.Cells(r, 10).Value = gg(4) & "。書き込みません（手作業のまま）"
+            cfg.Cells(r, 12).Value = "対象外"
+            cfg.Cells(r, 12).Interior.Color = RGB(255, 199, 206)
+            cfg.Cells(r, 13).Value = gg(4) & "。書き込みません（手作業のまま）"
             nSkip = nSkip + 1
         Else
             cfg.Cells(r, 3).Value = ""
-            cfg.Cells(r, 9).Value = "展開不可"
-            cfg.Cells(r, 9).Interior.Color = RGB(255, 235, 156)
-            cfg.Cells(r, 10).Value = gg(4) & "。今ある列だけに入れます"
+            cfg.Cells(r, 12).Value = "展開不可"
+            cfg.Cells(r, 12).Interior.Color = RGB(255, 235, 156)
+            cfg.Cells(r, 13).Value = gg(4) & "。今ある列だけに入れます"
             nFix = nFix + 1
         End If
         r = r + 1
     Next sk
 
     cfg.Columns.AutoFit
-    If cfg.Columns(7).ColumnWidth > 46 Then cfg.Columns(7).ColumnWidth = 46
-    If cfg.Columns(10).ColumnWidth > 44 Then cfg.Columns(10).ColumnWidth = 44
+    If cfg.Columns(10).ColumnWidth > 46 Then cfg.Columns(10).ColumnWidth = 46
+    If cfg.Columns(13).ColumnWidth > 44 Then cfg.Columns(13).ColumnWidth = 44
     cfg.Activate: cfg.Range("A1").Select
 
     MsgBox "「" & LNK_SHEET & "」を作りました。" & vbCrLf & vbCrLf & _
@@ -242,28 +283,26 @@ NextCell:
            "  展開可   : " & nExp & " 件 … 全ての口径列に数式を入れます" & vbCrLf & _
            "  展開不可 : " & nFix & " 件 … 今ある列だけに入れます" & vbCrLf & _
            "  対象外   : " & nSkip & " 件 … 列ごとに参照先が違うため手作業のまま" & vbCrLf & vbCrLf & _
+           "うち条件式 : " & nCond & " 件 … 舗装厚で照合する形にします" & vbCrLf & vbCrLf & _
            "口径対応表の空欄と、★の付いた推定値を確かめてから" & vbCrLf & _
-           "「直接リンクで数式を作る」を実行してください。", _
+           "「数式を作る」を実行してください。", _
            vbInformation, "取り込み完了"
 End Sub
 
 '==================================================================
 ' 2) 数式を書き込む
 '==================================================================
-Public Sub 直接リンクで数式を作る()
-    WriteFormulas False
+Public Sub 数式を作る()
+    WriteFormulas
 End Sub
 
-Public Sub INDIRECTで数式を作る()
-    WriteFormulas True
-End Sub
-
-Private Sub WriteFormulas(ByVal useIndirect As Boolean)
+Private Sub WriteFormulas()
     Dim cfg As Worksheet, ws As Worksheet
     Dim r As Long, lastRow As Long, i As Long
     Dim nWrite As Long, nBlank As Long, nErr As Long
     Dim scr As Boolean, calc As XlCalculation
     Dim diaOf As Object, keiOf As Object, colsOfKei As Object
+    Dim thkColW As String
 
     Set cfg = FindSheet(ThisWorkbook, LNK_SHEET)
     If cfg Is Nothing Then
@@ -276,6 +315,9 @@ Private Sub WriteFormulas(ByVal useIndirect As Boolean)
         MsgBox "対象シートが見つかりません: " & cfg.Range("B2").Value, vbExclamation
         Exit Sub
     End If
+
+    thkColW = Trim$(CStr(cfg.Range("B3").Value))
+    If Len(thkColW) = 0 Then thkColW = "I"
 
     ' 口径対応表を読む
     Set diaOf = CreateObject("Scripting.Dictionary")      ' 列 → 口径
@@ -295,8 +337,7 @@ Private Sub WriteFormulas(ByVal useIndirect As Boolean)
 NextDia:
     Next r
 
-    If MsgBox(ws.Name & " に数式を書き込みます（" & _
-              IIf(useIndirect, "INDIRECT 形式", "直接リンク形式") & "）。" & vbCrLf & vbCrLf & _
+    If MsgBox(ws.Name & " に数式を書き込みます。" & vbCrLf & vbCrLf & _
               "書き込む前にバックアップシートを作ります。続けますか？", _
               vbYesNo + vbQuestion, "確認") <> vbYes Then Exit Sub
 
@@ -306,12 +347,15 @@ NextDia:
     Application.ScreenUpdating = False
     Application.Calculation = xlCalculationManual
 
-    lastRow = cfg.Cells(cfg.Rows.Count, 4).End(xlUp).Row
+    lastRow = cfg.Cells(cfg.Rows.Count, 5).End(xlUp).Row
     For r = LNK_FIRST To lastRow
         If Len(Norm(cfg.Cells(r, 2).Value)) = 0 Then GoTo NextRow      ' 有効でない
-        Dim tRow As Long: tRow = Val(cfg.Cells(r, 4).Value)
-        Dim kei As String: kei = Trim$(CStr(cfg.Cells(r, 5).Value))
-        Dim tmpl As String: tmpl = Trim$(CStr(cfg.Cells(r, 7).Value))
+        Dim way As String: way = Trim$(CStr(cfg.Cells(r, 4).Value))
+        Dim tRow As Long: tRow = Val(cfg.Cells(r, 5).Value)
+        Dim thick As String: thick = Trim$(CStr(cfg.Cells(r, 6).Value))
+        Dim kind As String: kind = Trim$(CStr(cfg.Cells(r, 7).Value))
+        Dim kei As String: kei = Trim$(CStr(cfg.Cells(r, 8).Value))
+        Dim tmpl As String: tmpl = Trim$(CStr(cfg.Cells(r, 10).Value))
         Dim expand As Boolean: expand = (Len(Norm(cfg.Cells(r, 3).Value)) > 0)
         If tRow = 0 Or Len(tmpl) = 0 Then GoTo NextRow
 
@@ -319,7 +363,7 @@ NextDia:
         If expand And colsOfKei.Exists(kei) Then
             targets = colsOfKei(kei)                    ' 系統の全ての口径列
         Else
-            targets = Trim$(CStr(cfg.Cells(r, 6).Value))  ' 今ある列だけ
+            targets = Trim$(CStr(cfg.Cells(r, 9).Value))  ' 今ある列だけ
         End If
 
         Dim tc As Variant, wrote As Long, note As String
@@ -335,9 +379,16 @@ NextDia:
                 GoTo NextCol
             End If
 
-            Dim newF As String
-            If useIndirect Then
-                newF = BuildIndirect(tmpl, "$C$" & DiaRowOf(cfg, colL))
+            Dim newF As String, why As String
+            ' 厚さが空なら条件式にできないので直接参照に落とす
+            If way = "条件式" And Len(thick) = 0 Then way = "直接"
+            If way = "条件式" Then
+                newF = BuildSumifs(tmpl, dia, "$" & thkColW & tRow, kind, why)
+                If Len(newF) = 0 Then
+                    note = note & colL & "列: " & why & " "
+                    nErr = nErr + 1
+                    GoTo NextCol
+                End If
             Else
                 newF = Replace(tmpl, "#", dia)
             End If
@@ -356,7 +407,7 @@ NextCol:
         Next tc
 
         nWrite = nWrite + wrote
-        cfg.Cells(r, 10).Value = Trim$(note)
+        cfg.Cells(r, 13).Value = Trim$(note)
 NextRow:
     Next r
 
@@ -368,43 +419,11 @@ NextRow:
     msg = nWrite & " 個のセルに数式を入れました。"
     If nBlank > 0 Then msg = msg & vbCrLf & nBlank & " 個は口径が空欄のため飛ばしました。"
     If nErr > 0 Then msg = msg & vbCrLf & nErr & " 個は書き込めませんでした（備考欄を確認）。"
-    If useIndirect Then
-        msg = msg & vbCrLf & vbCrLf & _
-              "以後、口径を変えるときは口径対応表の黄色いセルを" & vbCrLf & _
-              "書き換えるだけで繋ぎ変わります。"
-    Else
-        msg = msg & vbCrLf & vbCrLf & _
-              "口径を変えたら、口径対応表を直してから" & vbCrLf & _
-              "このマクロをもう一度実行してください。"
-    End If
+    msg = msg & vbCrLf & vbCrLf & _
+          "口径を変えたら、口径対応表を直してから" & vbCrLf & _
+          "このマクロをもう一度実行してください。"
     MsgBox msg, vbInformation, "完了"
 End Sub
-
-'------------------------------------------------------------------
-' テンプレート → INDIRECT 数式
-'   ='試掘（舗#'!P4
-'     → =IFERROR(INDIRECT("'試掘（舗"&'リンク設定'!$C$7&"'!P4"),0)
-'------------------------------------------------------------------
-Private Function BuildIndirect(ByVal tmpl As String, ByVal diaCell As String) As String
-    Dim re As Object, ms As Object, m As Object
-    Dim out As String, pos As Long, rep As String
-
-    Set re = CreateObject("VBScript.RegExp")
-    re.Global = True
-    re.Pattern = "'([^']+)#'!(\$?[A-Z]{1,3}\$?[0-9]+)"
-
-    Set ms = re.Execute(tmpl)
-    If ms.Count = 0 Then BuildIndirect = Replace(tmpl, "#", ""): Exit Function
-
-    pos = 1
-    For Each m In ms
-        rep = "IFERROR(INDIRECT(""'" & m.SubMatches(0) & """&" & _
-              "'" & LNK_SHEET & "'!" & diaCell & "&""'!" & m.SubMatches(1) & """),0)"
-        out = out & Mid$(tmpl, pos, m.FirstIndex + 1 - pos) & rep
-        pos = m.FirstIndex + 1 + m.Length
-    Next m
-    BuildIndirect = out & Mid$(tmpl, pos)
-End Function
 
 '==================================================================
 ' 3) 点検
@@ -443,14 +462,14 @@ Public Sub リンクを点検()
     StyleHeader rep.Range("A3:F3")
 
     rr = 4
-    lastRow = cfg.Cells(cfg.Rows.Count, 4).End(xlUp).Row
+    lastRow = cfg.Cells(cfg.Rows.Count, 5).End(xlUp).Row
     For r = LNK_FIRST To lastRow
-        Dim tRow As Long: tRow = Val(cfg.Cells(r, 4).Value)
-        Dim tmpl As String: tmpl = Trim$(CStr(cfg.Cells(r, 7).Value))
+        Dim tRow As Long: tRow = Val(cfg.Cells(r, 5).Value)
+        Dim tmpl As String: tmpl = Trim$(CStr(cfg.Cells(r, 10).Value))
         If tRow = 0 Or Len(tmpl) = 0 Then GoTo NextRow
 
         Dim tc As Variant
-        For Each tc In Split(CStr(cfg.Cells(r, 6).Value), ",")
+        For Each tc In Split(CStr(cfg.Cells(r, 9).Value), ",")
             Dim colL As String: colL = Trim$(CStr(tc))
             If Len(colL) = 0 Then GoTo NextCol
             Dim dia As String: dia = ""
@@ -830,6 +849,200 @@ Private Sub StyleHeader(ByVal rg As Range)
     rg.Interior.Color = RGB(220, 230, 241)
     rg.HorizontalAlignment = xlCenter
 End Sub
+
+'==================================================================
+' 舗装版破砕工ブロックの検出と、条件式の組み立て
+'
+' 転記元の舗装厚は工事ごとに詰めて並ぶ（4cm が無ければ 5cm が先頭に来る）。
+' 同じセルを見ていると別の厚さの数量を拾うので、厚さで照合する。
+'==================================================================
+
+'------------------------------------------------------------------
+' 「□舗装版破砕工」ブロックを見出しから探す
+'   r0,r1     … データ行の範囲
+'   asThk/asSum … As側の 舗装厚列 と 合計列
+'   coThk/coSum … Co側
+'------------------------------------------------------------------
+Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Long, _
+                           ByRef asThk As Long, ByRef asSum As Long, _
+                           ByRef coThk As Long, ByRef coSum As Long) As Boolean
+    Dim ws As Worksheet, r As Long, c As Long, sect As Long, hdr As Long
+    Dim kinds As String, totals As String, i As Long
+
+    Set ws = FindSheet(ThisWorkbook, sn)
+    If ws Is Nothing Then Exit Function
+
+    ' セクション見出しを探す（数式の場合は計算値で判定される）
+    For r = 1 To 60
+        For c = 1 To 60
+            If InStr(1, Norm(ws.Cells(r, c).Value), "□舗装版破砕", vbTextCompare) > 0 Then
+                sect = r
+                Exit For
+            End If
+        Next c
+        If sect > 0 Then Exit For
+    Next r
+    If sect = 0 Then Exit Function
+
+    ' そのすぐ下にある「種別・舗装厚」と「合 計」が並ぶ行を探す
+    For r = sect + 1 To sect + 3
+        kinds = "": totals = ""
+        For c = 1 To 60
+            Dim v As String: v = Norm(ws.Cells(r, c).Value)
+            If v = "種別・舗装厚" Then kinds = kinds & c & ","
+            If v = "合計" Then totals = totals & c & ","
+        Next c
+        If Len(kinds) > 0 And Len(totals) > 0 Then
+            hdr = r
+            Exit For
+        End If
+    Next r
+    If hdr = 0 Then Exit Function
+
+    ' 種別列の右にある最初の合計列を対にする。厚さ列は種別列の隣。
+    Dim kArr As Variant, tArr As Variant
+    kArr = Split(Left$(kinds, Len(kinds) - 1), ",")
+    tArr = Split(Left$(totals, Len(totals) - 1), ",")
+
+    asThk = 0: asSum = 0: coThk = 0: coSum = 0
+    For i = 0 To UBound(kArr)
+        Dim kc As Long: kc = CLng(kArr(i))
+        Dim sc As Long: sc = NextTotal(tArr, kc)
+        If sc = 0 Then GoTo NextPair
+        If asSum = 0 Then
+            asThk = kc + 1: asSum = sc
+        ElseIf coSum = 0 Then
+            coThk = kc + 1: coSum = sc
+            Exit For
+        End If
+NextPair:
+    Next i
+    If asSum = 0 Then Exit Function
+
+    ' データ行＝種別列に As / Co が並ぶ範囲
+    r0 = hdr + 1
+    r1 = r0 - 1
+    For r = r0 To r0 + 40
+        Dim k As String: k = Norm(ws.Cells(r, asThk - 1).Value)
+        If k <> "AS" And k <> "CO" Then Exit For
+        r1 = r
+    Next r
+    If r1 < r0 Then Exit Function
+
+    FindBlock = True
+End Function
+
+Private Function NextTotal(ByVal tArr As Variant, ByVal kc As Long) As Long
+    Dim i As Long, best As Long
+    best = 0
+    For i = 0 To UBound(tArr)
+        Dim t As Long: t = CLng(tArr(i))
+        If t > kc Then
+            If best = 0 Or t < best Then best = t
+        End If
+    Next i
+    NextTotal = best
+End Function
+
+Private Function HasBreakBlock(ByVal sn As String) As Boolean
+    Dim a As Long, b As Long, c As Long, d As Long, e As Long, f As Long
+    HasBreakBlock = FindBlock(sn, a, b, c, d, e, f)
+End Function
+
+'------------------------------------------------------------------
+' 厚さで照合する条件式を作る
+'   =SUMIFS('管工（舗50'!$T$16:$T$22,'管工（舗50'!$R$16:$R$22,$I31)
+'------------------------------------------------------------------
+Private Function BuildSumifs(ByVal tmpl As String, ByVal dia As String, _
+                             ByVal thkRef As String, ByVal kind As String, _
+                             ByRef why As String) As String
+    Dim sn As String, pre As String, out As String
+    Dim r0 As Long, r1 As Long, aT As Long, aS As Long, cT As Long, cS As Long
+
+    why = ""
+    pre = PrefixOf(tmpl)
+    If Len(pre) = 0 Then why = "シート名を取り出せません": Exit Function
+
+    sn = pre & dia
+    If Not FindBlock(sn, r0, r1, aT, aS, cT, cS) Then
+        why = "舗装版破砕工のブロックが見つかりません(" & sn & ")"
+        Exit Function
+    End If
+
+    If InStr(kind, "As") > 0 And aS > 0 Then
+        out = SumifsTerm(sn, aS, aT, r0, r1, thkRef)
+    End If
+    If InStr(kind, "Co") > 0 And cS > 0 Then
+        If Len(out) > 0 Then out = out & "+"
+        out = out & SumifsTerm(sn, cS, cT, r0, r1, thkRef)
+    End If
+
+    If Len(out) = 0 Then why = "種別が As でも Co でもありません(" & kind & ")": Exit Function
+    BuildSumifs = "=" & out
+End Function
+
+Private Function SumifsTerm(ByVal sn As String, ByVal sumCol As Long, ByVal thkCol As Long, _
+                            ByVal r0 As Long, ByVal r1 As Long, ByVal thkRef As String) As String
+    Dim q As String
+    q = "'" & sn & "'!"
+    SumifsTerm = "SUMIFS(" & q & Rng(sumCol, r0, r1) & "," & q & Rng(thkCol, r0, r1) & "," & thkRef & ")"
+End Function
+
+Private Function Rng(ByVal col As Long, ByVal r0 As Long, ByVal r1 As Long) As String
+    Dim L As String
+    L = ColLetterFromNum(col)
+    Rng = "$" & L & "$" & r0 & ":$" & L & "$" & r1
+End Function
+
+' テンプレートからシート名の接頭辞を取る  ='管工（舗#'!T16 → 管工（舗
+Private Function PrefixOf(ByVal tmpl As String) As String
+    Dim re As Object, ms As Object
+    Set re = CreateObject("VBScript.RegExp")
+    re.Pattern = "'([^']+)#'!"
+    Set ms = re.Execute(tmpl)
+    If ms.Count > 0 Then PrefixOf = ms(0).SubMatches(0)
+End Function
+
+' 種別欄を読む。結合セルにも対応。"As" / "Co" / "AsCo" を返す
+Private Function KindOf(ByVal ws As Worksheet, ByVal r As Long, ByVal c As Long) As String
+    Dim v As String, out As String
+    v = Norm(MergedValue(ws, r, c))
+    If InStr(v, "AS") > 0 Then out = "As"
+    If InStr(v, "CO") > 0 Then out = out & "Co"
+    KindOf = out
+End Function
+
+Private Function MergedValue(ByVal ws As Worksheet, ByVal r As Long, ByVal c As Long) As Variant
+    Dim cell_ As Range
+    Set cell_ = ws.Cells(r, c)
+    If cell_.MergeCells Then
+        MergedValue = cell_.MergeArea.Cells(1, 1).Value
+    Else
+        MergedValue = cell_.Value
+    End If
+End Function
+
+' 見出し行から、指定の語を含む列を探す。無ければ既定値
+Private Function FindLabelCol(ByVal ws As Worksheet, ByVal label As String, _
+                              ByVal defaultCol As String) As String
+    Dim r As Long, c As Long
+    For r = 1 To 12
+        For c = 1 To 30
+            If InStr(1, Norm(ws.Cells(r, c).Value), Norm(label), vbTextCompare) > 0 Then
+                FindLabelCol = ColLetterFromNum(c)
+                Exit Function
+            End If
+        Next c
+    Next r
+    FindLabelCol = defaultCol
+End Function
+
+Private Function DiaOfCol(ByRef cols() As TCol, ByVal n As Long, ByVal letter As String) As String
+    Dim i As Long
+    For i = 0 To n - 1
+        If cols(i).Letter = letter Then DiaOfCol = cols(i).Dia: Exit Function
+    Next i
+End Function
 
 Private Sub BackupSheet(ByVal ws As Worksheet)
     Dim nm As String, bk As Worksheet
