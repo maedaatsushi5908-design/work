@@ -69,6 +69,9 @@ Public Sub リンク設定を取り込む()
         If Not HasSheetRef(c) Then GoTo NextCell
         f = c.Formula
 
+        ' 前回このマクロが入れた INDIRECT 形式なら、普通の参照に読み替えてから解析する
+        f = Normalize(f)
+
         Dim terms As Collection: Set terms = ParseTerms(f)
         If terms.Count = 0 Then GoTo NextCell
         If terms.Count <> CountChar(f, "!") Then GoTo NextCell   ' 想定外の書き方
@@ -687,8 +690,51 @@ Private Function AskTargetSheet() As String
 End Function
 
 Private Function HasSheetRef(ByVal c As Range) As Boolean
+    Dim f As String
     If Not c.HasFormula Then Exit Function
-    HasSheetRef = (InStr(c.Formula, "!") > 0) And (InStr(c.Formula, "表紙") = 0)
+    f = c.Formula
+    If InStr(f, "表紙") > 0 Then Exit Function
+    ' INDIRECT 形式は「リンク設定」への参照しか持たないので、そちらも拾う
+    HasSheetRef = (InStr(f, "!") > 0) Or (InStr(f, "INDIRECT") > 0)
+End Function
+
+'------------------------------------------------------------------
+' 前回このマクロが入れた INDIRECT 形式を、普通のシート参照に戻す
+'   =IFERROR(INDIRECT("'試掘（舗"&'リンク設定'!$C$7&"'!P4"),0)
+'     → ='試掘（舗400'!P4
+' 口径は、まだ残っている「リンク設定」シートから読む。
+' これにより、一度変換した後でも取り込み直せる。
+'------------------------------------------------------------------
+Private Function Normalize(ByVal f As String) As String
+    Dim re As Object, ms As Object, m As Object
+    Dim cfg As Worksheet, out As String, pos As Long, dia As String
+
+    Normalize = f
+    If InStr(f, "INDIRECT") = 0 Then Exit Function
+
+    Set cfg = FindSheet(ThisWorkbook, LNK_SHEET)
+    If cfg Is Nothing Then Exit Function     ' 口径が分からないので触らない
+
+    Set re = CreateObject("VBScript.RegExp")
+    re.Global = True
+    re.Pattern = "IFERROR\(INDIRECT\(""'([^""]+)""&'?" & LNK_SHEET & _
+                 "'?!(\$?[A-Z]{1,3}\$?[0-9]+)&""'!(\$?[A-Z]{1,3}\$?[0-9]+)""\),0\)"
+
+    Set ms = re.Execute(f)
+    If ms.Count = 0 Then Exit Function
+
+    pos = 1
+    For Each m In ms
+        On Error Resume Next
+        dia = Trim$(CStr(cfg.Range(m.SubMatches(1)).Value))
+        If Err.Number <> 0 Then Err.Clear: dia = ""
+        On Error GoTo 0
+        If Len(dia) = 0 Then Exit Function   ' 1つでも解決できなければ諦める
+        out = out & Mid$(f, pos, m.FirstIndex + 1 - pos) & _
+              "'" & m.SubMatches(0) & dia & "'!" & m.SubMatches(2)
+        pos = m.FirstIndex + 1 + m.Length
+    Next m
+    Normalize = out & Mid$(f, pos)
 End Function
 
 Private Function ParseTerms(ByVal f As String) As Collection
