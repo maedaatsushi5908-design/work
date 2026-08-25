@@ -1,83 +1,158 @@
 #!/usr/bin/env python3
-"""M_Link が生成する INDIRECT 数式の検証
+"""M_Link の取り込み・展開・数式生成の検証
 
-VBA の「リンク設定を取り込む」→「数式を再生成」と同じ処理を再現し、
-生成した数式が今の直接リンクと同じ値になることを確かめる。
+VBA の「リンク設定を取り込む」→「直接リンクで数式を作る」と同じ処理を
+再現し、次の3点を確かめる。
+
+  1. 既存のリンクがあるセルは、生成後も値が変わらないこと
+  2. 新しく数式が入るセル（未リンクの口径列）に何が入るか
+  3. 書き込み対象から外すべき行が正しく外れること
 
     cd excel/original && python3 ../docs/verify_link_formulas.py
 
 VBA を書き換えたら、こちらのロジックも合わせて更新すること。
 """
+import collections
 import re
 import sys
+import unicodedata
 
 import openpyxl
 from openpyxl.utils import get_column_letter as gl
 
 BOOK = "06_dokou_hosou.xlsx"
 TARGET = "総括表（土工事）"
-LNK = "リンク設定"
-
 TERM = re.compile(r"'([^']+)'!(\$?[A-Z]{1,3}\$?[0-9]+)")
-GEN = re.compile(
-    r'IFERROR\(INDIRECT\("\'([^"]+)"&\'' + LNK + r'\'!\$C\$(\d+)&"\'!(\$?[A-Z]{1,3}\$?[0-9]+)"\),0\)'
-)
 
 
-def trail_digits(s):
+def norm(s):
+    """VBA の Norm と同じ"""
+    if s is None:
+        return ""
+    t = unicodedata.normalize("NFKC", str(s))
+    for ch in " 　\t\r\nφΦfF":
+        t = t.replace(ch, "")
+    return t.upper()
+
+
+def trail(s):
     """末尾に続く数字。VBA の TrailDigits と同じ"""
-    m = re.search(r"(\d+)$", s)
+    m = re.search(r"(\d+)$", str(s))
     return m.group(1) if m else ""
 
 
-def make_template(f, dia):
-    """数式中の該当口径を # にする。VBA の MakeTemplate と同じ"""
-    return re.sub(r"'([^']+)" + re.escape(dia) + r"'!", r"'\1#'!", f)
+def header_of(ws, col):
+    """列の見出し。1〜12行目の最初の非数式セル"""
+    for r in range(1, 13):
+        v = ws.cell(r, col).value
+        if v not in (None, "") and norm(v) and not str(v).startswith("="):
+            return " ".join(str(v).split())
+    return ""
 
 
-def build_indirect(tmpl, dia_cell):
-    """テンプレート → INDIRECT 数式。VBA の BuildIndirect と同じ"""
-
-    def rep(m):
-        return f"IFERROR(INDIRECT(\"'{m.group(1)}\"&'{LNK}'!{dia_cell}&\"'!{m.group(2)}\"),0)"
-
-    return re.sub(r"'([^']+)#'!(\$?[A-Z]{1,3}\$?[0-9]+)", rep, tmpl)
+def kei_of(ws, col):
+    """系統＝見出しの「（」より前。VBA の KeiOf と同じ"""
+    h = header_of(ws, col)
+    if not h:
+        return ""
+    p = h.find("（")
+    if p < 0:
+        p = h.find("(")
+    if p > 0:
+        h = h[:p]
+    return h.replace(" ", "").replace("　", "").strip()
 
 
 def collect(ws):
-    """リンクを拾って、列ごとの口径を集める。VBA の取り込みと同じ"""
-    links, col_dia = [], {}
+    """リンクを行×系統でまとめ、展開の可否を判定する"""
+    grp, keys, colinfo = {}, collections.defaultdict(set), {}
     for row in ws.iter_rows():
         for c in row:
-            if not (isinstance(c.value, str) and c.value.startswith("=")):
+            v = c.value
+            if not (isinstance(v, str) and v.startswith("=") and "!" in v):
                 continue
-            f = c.value
-            if "!" not in f or "表紙" in f:
+            if "表紙" in v:
                 continue
-            terms = TERM.findall(f)
-            if not terms:
-                continue
-            cl = gl(c.column)
-            if len(terms) != f.count("!"):
-                # 引用符なしのシート名など想定外の書き方。手を出さない
-                links.append((c.coordinate, cl, f, "?"))
-                continue
-            ds, bad = [], False
-            for pre, _addr in terms:
-                d = trail_digits(pre)
+            terms = TERM.findall(v)
+            if not terms or len(terms) != v.count("!"):
+                continue  # 想定外の書き方は触らない
+
+            cl, kei = gl(c.column), kei_of(ws, c.column)
+            dia, sig, bad = None, [], False
+            for pre, addr in terms:
+                d = trail(pre)
                 if not d:
                     bad = True
                     break
-                if d not in ds:
-                    ds.append(d)
+                if dia is None:
+                    dia = d
+                elif dia != d:
+                    bad = True  # 1セルに複数の口径が混ざる
+                    break
+                sig.append((pre[: -len(d)], addr.replace("$", "")))
             if bad:
                 continue
-            col_dia.setdefault(cl, [])
-            for d in ds:
-                if d not in col_dia[cl]:
-                    col_dia[cl].append(d)
-            links.append((c.coordinate, cl, f, ",".join(ds)))
-    return links, col_dia
+
+            colinfo.setdefault(cl, {"kei": kei, "hdr": header_of(ws, c.column), "dia": dia})
+            for p in sig:
+                keys[(kei,) + p].add(c.row)
+
+            gk = (c.row, kei)
+            if gk in grp:
+                g = grp[gk]
+                if g["sig"] != tuple(sig):
+                    g["state"] = "NG_SIG"  # 列ごとに参照セルが違う
+                g["cols"].append(cl)
+            else:
+                grp[gk] = {
+                    "cols": [cl],
+                    "sig": tuple(sig),
+                    "tmpl": re.sub(r"'([^']+)" + re.escape(dia) + r"'!", r"'\1#'!", v),
+                    "state": "",
+                }
+
+    for (_r, kei), g in grp.items():
+        if g["state"] == "NG_SIG":
+            continue
+        shared = set()
+        for p in g["sig"]:
+            shared |= keys[(kei,) + p]
+        # 同じ参照セルを複数の行が分け合う＝行ごとに口径が分かれた区間
+        g["state"] = "NG_SHARE" if len(shared) > 1 else "OK"
+    return grp, colinfo
+
+
+def add_siblings(ws, colinfo):
+    """リンクのある列と同じ系統の列を、口径が空のまま加える"""
+    keis = {v["kei"] for v in colinfo.values() if v["kei"]}
+    for c in range(1, ws.max_column + 1):
+        cl, k = gl(c), kei_of(ws, c)
+        if k in keis and cl not in colinfo:
+            colinfo[cl] = {"kei": k, "hdr": header_of(ws, c), "dia": None}
+
+
+def guess_diameters(wb, colinfo):
+    """口径が空の列に、シート名と見出しの数字から候補を当てる"""
+
+    def sheet_exists(kei, dia):
+        return any(trail(sh) == dia and norm(kei)[:2] in norm(sh) for sh in wb.sheetnames)
+
+    for _ in range(5):
+        changed = False
+        for info in colinfo.values():
+            if info["dia"]:
+                continue
+            used = {x["dia"] for x in colinfo.values() if x["kei"] == info["kei"] and x["dia"]}
+            cand = {
+                n for n in re.findall(r"\d+", info["hdr"])
+                if sheet_exists(info["kei"], n) and n not in used
+            }
+            if len(cand) == 1:
+                info["dia"] = cand.pop()
+                info["guess"] = True
+                changed = True
+        if not changed:
+            break
 
 
 def main():
@@ -85,44 +160,70 @@ def main():
     wbv = openpyxl.load_workbook(BOOK, data_only=True)
     ws, wsv = wbf[TARGET], wbv[TARGET]
 
-    links, col_dia = collect(ws)
-    cols = sorted(col_dia, key=lambda x: (len(x), x))
-    dia_cell = {cl: f"$C${6 + i}" for i, cl in enumerate(cols)}
-    dia_val = {dia_cell[cl]: col_dia[cl][0] for cl in cols if len(col_dia[cl]) == 1}
+    grp, colinfo = collect(ws)
+    add_siblings(ws, colinfo)
+    guess_diameters(wbf, colinfo)
 
-    print("口径対応表:")
-    for cl in cols:
-        print(f"   {dia_cell[cl]}  {cl}列 → {col_dia[cl]}")
+    print("=== 口径対応表 ===")
+    for cl in sorted(colinfo, key=lambda x: (len(x), x)):
+        i = colinfo[cl]
+        mark = "  ★推定" if i.get("guess") else ""
+        print(f"   {cl:2}列 口径={str(i['dia']):5} 系統={i['kei']:6} {i['hdr'][:28]}{mark}")
 
-    ok = ng = skip = 0
-    for co, cl, f, ds in links:
-        if ds == "?" or "," in ds or len(col_dia.get(cl, [])) != 1:
-            skip += 1
-            continue
-        gen = build_indirect(make_template(f, ds), dia_cell[cl])
-        body = gen[1:]
-        parts = GEN.findall(body)
-        total, err = 0.0, ""
-        if len(parts) != body.count("IFERROR"):
-            err = "生成式の形が不正"
-        else:
-            for pre, drow, addr in parts:
-                sn = pre + dia_val[f"$C${drow}"]
-                if sn not in wbv.sheetnames:
-                    continue  # IFERROR → 0
-                v = wbv[sn][addr.replace("$", "")].value
-                total += float(v) if isinstance(v, (int, float)) else 0.0
-        cur = wsv[co].value
-        cur = float(cur) if isinstance(cur, (int, float)) else None
-        good = not err and cur is not None and abs(total - cur) < 1e-9
-        if good:
-            ok += 1
-        else:
-            ng += 1
-            print(f"   NG {co}: {f}\n      → {gen}\n      got={total} cur={cur} {err}")
+    cols_of_kei = collections.defaultdict(list)
+    for cl in sorted(colinfo, key=lambda x: (len(x), x)):
+        if colinfo[cl]["dia"]:
+            cols_of_kei[colinfo[cl]["kei"]].append(cl)
+    print("\n系統 → 数式を入れる列:", dict(cols_of_kei))
 
-    print(f"\n生成式の評価: 一致 {ok} / {ok + ng}   （手動のまま {skip} 本）")
-    return 0 if ng == 0 else 1
+    def resolve(tmpl, dia):
+        total = 0.0
+        for pre, addr in TERM.findall(tmpl.replace("#", dia)):
+            if pre not in wbv.sheetnames:
+                continue  # シートが無ければ 0（IFERROR 相当）
+            v = wbv[pre][addr.replace("$", "")].value
+            total += float(v) if isinstance(v, (int, float)) else 0.0
+        return total
+
+    same = diff = new_zero = new_nonzero = skipped = 0
+    bad = []
+    for (r, kei), g in sorted(grp.items()):
+        if g["state"] == "NG_SIG":
+            skipped += 1
+            continue  # 列ごとに参照先が違う行は書き込まない
+        targets = cols_of_kei[kei] if g["state"] == "OK" else g["cols"]
+        for cl in targets:
+            dia = colinfo[cl]["dia"]
+            if not dia:
+                continue
+            got = resolve(g["tmpl"], dia)
+            cur = wsv.cell(r, ws[cl + "1"].column).value
+            cur = float(cur) if isinstance(cur, (int, float)) else None
+            if cl in g["cols"]:
+                if cur is not None and abs(got - cur) < 1e-9:
+                    same += 1
+                else:
+                    diff += 1
+                    bad.append((r, kei, cl, got, cur))
+            elif abs(got) < 1e-9:
+                new_zero += 1
+            else:
+                new_nonzero += 1
+                bad.append((r, kei, cl, got, "新規"))
+
+    print(f"\n既存セル : 値が同じ {same} / 変わる {diff}")
+    print(f"新規セル : 0が入る {new_zero} / 0以外が入る {new_nonzero}")
+    print(f"書き込み対象外（列ごとに参照先が違う）: {skipped} 群")
+    for b in bad[:8]:
+        print("   ★", b)
+
+    n_ok = sum(1 for g in grp.values() if g["state"] == "OK")
+    n_share = sum(1 for g in grp.values() if g["state"] == "NG_SHARE")
+    print(f"\n展開可 {n_ok} / 展開不可 {n_share} / 対象外 {skipped}")
+    print(f"書き込むセル総数 {same + diff + new_zero + new_nonzero}（うち新規 {new_zero + new_nonzero}）")
+
+    # 既存セルの値が1つでも変わる、または新規セルに0以外が入るなら異常
+    return 0 if (diff == 0 and new_nonzero == 0) else 1
 
 
 if __name__ == "__main__":
