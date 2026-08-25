@@ -55,10 +55,20 @@ FOR_EACH = re.compile(r"\bFor\s+Each\s+([A-Za-z_][A-Za-z0-9_]*)\b", re.I)
 OPENER = re.compile(r"^\s*(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?(Sub|Function|Property)\b", re.I)
 CLOSER = re.compile(r"^\s*End\s+(Sub|Function|Property)\b", re.I)
 
+# モジュールレベルの宣言。VBA ではすべての手続きより前に置く決まりがあり、
+# 後ろに来るとコンパイルできない。モジュールを連結したときに起きやすい。
+MODULE_DECL = re.compile(
+    r"^(?:Public\s+|Private\s+|Global\s+)?(?:Const|Type|Enum|Dim|Declare)\s", re.I
+)
+MODULE_VAR = re.compile(
+    r"^(?:Public|Private)\s+(?:WithEvents\s+)?[A-Za-z_][A-Za-z0-9_]*\s+As\s", re.I
+)
+
 
 def check(path):
     problems = []
     depth = 0
+    seen_proc = False
     for ln, raw in enumerate(open(path, encoding="utf-8"), 1):
         line = raw.rstrip("\n")
         stripped = line.strip()
@@ -79,8 +89,17 @@ def check(path):
         if "　" in code:
             problems.append((ln, "コード行に全角スペース", code[:78]))
 
+        # 手続きの外に出ている宣言が、最初の手続きより後ろに来ていないか
+        if depth == 0 and (MODULE_DECL.match(code) or MODULE_VAR.match(code)):
+            if seen_proc:
+                problems.append(
+                    (ln, "モジュールレベルの宣言が手続きより後ろにある"
+                         "（VBA では全ての手続きより前に置く必要がある）", code[:78])
+                )
+
         if OPENER.match(code) and not re.search(r"\bDeclare\b", code, re.I):
             depth += 1
+            seen_proc = True
         elif CLOSER.match(code):
             depth -= 1
 

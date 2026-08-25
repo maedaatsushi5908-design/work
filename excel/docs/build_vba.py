@@ -51,15 +51,44 @@ ATTR = re.compile(r'^Attribute VB_Name = "[^"]*"\s*$')
 OPT = re.compile(r"^Option Explicit\s*$")
 
 
+PROC = re.compile(
+    r"^(?:Public |Private |Friend )?(?:Static )?(?:Sub|Function|Property)\s", re.I
+)
+
+
 def load(part, make_private=()):
-    """1モジュールを読み、Attribute と Option Explicit を落とす"""
+    """1モジュールを読み、宣言部と手続き部に分けて返す
+
+    VBA は Type / Const / Enum / モジュール変数を、すべての手続きより前に
+    置かないとコンパイルできない。単純に連結すると2つ目以降のモジュールの
+    宣言が手続きの後ろに来て構文エラーになるため、ここで分けておく。
+    """
     with open(os.path.join(SRC, part), encoding="utf-8") as f:
         lines = f.read().split("\n")
-    text = "\n".join(l for l in lines if not ATTR.match(l) and not OPT.match(l)).strip("\n")
+    lines = [l for l in lines if not ATTR.match(l) and not OPT.match(l)]
+
+    for i, l in enumerate(lines):
+        if PROC.match(l):
+            cut = i
+            break
+    else:
+        cut = len(lines)
+
+    # 手続きの直前にあるコメント・空行は、その手続きの説明なので手続き側へ回す
+    while cut > 0:
+        prev = lines[cut - 1].strip()
+        if prev == "" or prev.startswith("'"):
+            cut -= 1
+        else:
+            break
+
+    decl = "\n".join(lines[:cut]).strip("\n")
+    body = "\n".join(lines[cut:]).strip("\n")
+
     for name in make_private:
-        text = re.sub(rf"^Public (Sub|Function) {re.escape(name)}\b",
-                      rf"Private \1 {name}", text, flags=re.M)
-    return text
+        body = re.sub(rf"^Public (Sub|Function) {re.escape(name)}\b",
+                      rf"Private \1 {name}", body, flags=re.M)
+    return decl, body
 
 
 def build(bundle):
@@ -71,12 +100,27 @@ def build(bundle):
     out.append("' つなげたもの。直すときは src 側を直して build_vba.py を実行する。")
     out.append("'" + "=" * 66)
     out.append("Option Explicit")
-    for p in bundle["parts"]:
+
+    parts = [(p,) + load(p, bundle.get("make_private", ())) for p in bundle["parts"]]
+
+    # 宣言はすべて先頭に集める（VBA の決まり）
+    for name, decl, _body in parts:
+        if not decl:
+            continue
+        out.append("")
+        out.append("'--- " + name + " の宣言 " + "-" * max(0, 50 - len(name)))
+        out.append(decl)
+
+    # 手続きはそのあとに並べる
+    for name, _decl, body in parts:
+        if not body:
+            continue
         out.append("")
         out.append("'" + "=" * 66)
-        out.append(f"' ここから {p}")
+        out.append(f"' ここから {name}")
         out.append("'" + "=" * 66)
-        out.append(load(p, bundle.get("make_private", ())))
+        out.append(body)
+
     return "\n".join(out) + "\n"
 
 
