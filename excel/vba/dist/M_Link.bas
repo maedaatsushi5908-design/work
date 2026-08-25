@@ -1,33 +1,187 @@
 Attribute VB_Name = "M_Link"
 '==================================================================
-' M_Link - ‘Š‡•\‚ÌƒV[ƒgŠÔƒŠƒ“ƒN‚ğ”®‚É‚·‚é
+' 06 åœŸå·¥äº‹ãƒ»èˆ—è£…å¾©æ—§ æ•°é‡è¨ˆç®—æ›¸ ç”¨
 '
-' ƒ}ƒNƒ‚Í1–{‚¾‚¯B
+' ã“ã®ãƒ•ã‚¡ã‚¤ãƒ«1ã¤ã ã‘ã‚’æ¨™æº–ãƒ¢ã‚¸ãƒ¥ãƒ¼ãƒ«ã«è²¼ã‚Šä»˜ã‘ã‚Œã°å‹•ãã€‚
+' ãƒã‚¯ãƒ­ã¯ã€Œç·æ‹¬è¡¨ã®æ•°å¼ã‚’ä½œã‚Šç›´ã™ã€1æœ¬ã€‚
 '
-'     ‘Š‡•\‚Ì”®‚ğì‚è’¼‚·()
-'
-' ’†‚Å‚â‚é‚±‚Æ:
-'   1. ¡‚ ‚éƒŠƒ“ƒN‚ğ“Ç‚İæ‚Á‚ÄuƒŠƒ“ƒNİ’èvƒV[ƒg‚ğì‚é
-'      i‘O‰ñ‚Ìİ’è‚ª‚ ‚ê‚ÎAŒûŒa‚È‚Ç‚Ìè’¼‚µ‚Íˆø‚«Œp‚®j
-'   2. ‰½‚ğ‚·‚é‚©‚ğ•\¦‚µ‚ÄŠm”F‚ğæ‚é
-'   3. ƒoƒbƒNƒAƒbƒv‚ğì‚Á‚Ä‚©‚ç”®‚ğ‘‚«‚Ş
-'   4. ’l‚ª•Ï‚í‚Á‚½ƒZƒ‹‚ğˆê——‚É‚µ‚Ä•\¦‚µA
-'      ”[“¾‚Å‚«‚È‚¯‚ê‚Î‚»‚Ìê‚ÅŒ³‚É–ß‚·
-'
-' ”®‚Í2í—ŞBæ‚è‚İ‚É‚Ç‚¿‚ç‚©‚ğ©“®‚ÅŠ„‚è“–‚Ä‚éB
-'
-'   ’¼Ú   ='Œ@i•Ü400'!P4
-'          •Ü‘•Ø’fH‚Ì‚æ‚¤‚ÉA“]‹LŒ³‚Ìs‚ªŒÅ’è•¶š‚Å•À‚Ô‰ÓŠB
-'
-'   ğŒ® =SUMIFS('ŠÇHi•Ü50'!$T$16:$T$22,'ŠÇHi•Ü50'!$R$16:$R$22,$I31)
-'          •Ü‘•”Å”jÓH‚ÌƒuƒƒbƒN‚ÍA‚»‚ÌH–‚Åo‚Ä‚­‚é•Ü‘•Œú‚¾‚¯‚ª
-'          ‹l‚ß‚Ä•À‚ÔB“¯‚¶ƒZƒ‹‚ğŒ©‚Ä‚¢‚é‚Æ•Ê‚ÌŒú‚³‚Ì”—Ê‚ğE‚¤‚Ì‚ÅA
-'          ‘Š‡•\‚ÌŒú‚³—“‚Æˆê’v‚·‚és‚ğ’T‚µ‚Ä‡Œv‚·‚éB
+' å…ƒã¯ excel/vba/src/ ã® M_Util.bas / M_Link.bas ã‚’
+' ã¤ãªã’ãŸã‚‚ã®ã€‚ç›´ã™ã¨ãã¯ src å´ã‚’ç›´ã—ã¦ build_vba.py ã‚’å®Ÿè¡Œã™ã‚‹ã€‚
 '==================================================================
 Option Explicit
 
-Public Const LNK_SHEET As String = "ƒŠƒ“ƒNİ’è"
-Public Const REP_SHEET As String = "ÀsŒ‹‰Ê"
+'==================================================================
+' ã“ã“ã‹ã‚‰ M_Util.bas
+'==================================================================
+'==================================================================
+' M_Util - æ–‡å­—åˆ—æ­£è¦åŒ–ãƒ»ã‚»ãƒ«æ“ä½œã®å…±é€šãƒ˜ãƒ«ãƒ‘ãƒ¼
+'
+' æ•°é‡è¨ˆç®—æ›¸ã¯ä½œæˆè€…ã‚„å¹´åº¦ã«ã‚ˆã£ã¦å…¨è§’/åŠè§’ã€ã‚¹ãƒšãƒ¼ã‚¹ã®å…¥ã‚Šæ–¹ãŒ
+' ã¾ã¡ã¾ã¡ãªã®ã§ã€æ¯”è¼ƒã™ã‚‹å‰ã«å¿…ãš Norm ã‚’é€šã—ã¦è¡¨è¨˜ã‚†ã‚Œã‚’å¸åã™ã‚‹ã€‚
+'==================================================================
+
+' ç…§åˆæ–¹å¼
+Public Enum MatchMode
+    mmPartial = 0   ' éƒ¨åˆ†ä¸€è‡´ï¼ˆæ—¢å®šï¼‰
+    mmExact = 1     ' å®Œå…¨ä¸€è‡´
+    mmDia = 2       ' å£å¾„ä¸€è‡´ï¼ˆæ•°å­—ã ã‘å–ã‚Šå‡ºã—ã¦æ•°å€¤æ¯”è¼ƒï¼‰
+End Enum
+
+'------------------------------------------------------------------
+' è¡¨è¨˜ã‚†ã‚Œã‚’å¸åã—ãŸæ¯”è¼ƒç”¨æ–‡å­—åˆ—ã‚’è¿”ã™
+'   ãƒ»å…¨è§’è‹±æ•°è¨˜å· â†’ åŠè§’
+'   ãƒ»ç©ºç™½ï¼ˆåŠè§’/å…¨è§’/ã‚¿ãƒ–/æ”¹è¡Œï¼‰ã‚’é™¤å»
+'   ãƒ»Ï† Î¦ ï½† ãªã©ã®å¾„è¨˜å·ã‚’é™¤å»
+'   ãƒ»è‹±å­—ã¯å¤§æ–‡å­—ã«çµ±ä¸€
+'------------------------------------------------------------------
+Public Function Norm(ByVal s As Variant) As String
+    Dim t As String
+    If IsError(s) Or IsEmpty(s) Then Norm = "": Exit Function
+    t = CStr(s)
+    If Len(t) = 0 Then Norm = "": Exit Function
+
+    t = StrConv(t, vbNarrow)                 ' å…¨è§’â†’åŠè§’
+    t = Replace(t, vbCr, "")
+    t = Replace(t, vbLf, "")
+    t = Replace(t, vbTab, "")
+    t = Replace(t, " ", "")                  ' åŠè§’ã‚¹ãƒšãƒ¼ã‚¹
+    t = Replace(t, ChrW(&H3000), "")         ' å…¨è§’ã‚¹ãƒšãƒ¼ã‚¹
+    t = Replace(t, ChrW(&H3C6), "")          ' Ï†
+    t = Replace(t, ChrW(&H3A6), "")          ' Î¦
+    t = Replace(t, "f", "")
+    t = Replace(t, "F", "")
+    Norm = UCase$(t)
+End Function
+
+'------------------------------------------------------------------
+' æ–‡å­—åˆ—ã‹ã‚‰æœ€åˆã®æ•°å­—ã®ä¸¦ã³ã‚’å–ã‚Šå‡ºã—ã¦æ•°å€¤ã§è¿”ã™ï¼ˆè¦‹ã¤ã‹ã‚‰ãªã‘ã‚Œã° -1ï¼‰
+'   "SP400A" â†’ 400   "Ï†400 1ç¨®ç®¡" â†’ 400   "300A" â†’ 300
+'------------------------------------------------------------------
+Public Function ExtractNum(ByVal s As Variant) As Double
+    Dim t As String, i As Long, ch As String, buf As String
+    Dim started As Boolean
+
+    ExtractNum = -1
+    If IsError(s) Or IsEmpty(s) Then Exit Function
+    t = StrConv(CStr(s), vbNarrow)
+
+    For i = 1 To Len(t)
+        ch = Mid$(t, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            buf = buf & ch
+            started = True
+        ElseIf started Then
+            Exit For
+        End If
+    Next i
+
+    If Len(buf) > 0 Then ExtractNum = CDbl(buf)
+End Function
+
+'------------------------------------------------------------------
+' æŒ‡å®šã®ç…§åˆæ–¹å¼ã§ã‚­ãƒ¼ã¨å¯¾è±¡ã‚’æ¯”è¼ƒã™ã‚‹
+'------------------------------------------------------------------
+Public Function KeyMatches(ByVal target As Variant, ByVal key As String, _
+                           ByVal mode As MatchMode) As Boolean
+    Dim nt As String, nk As String
+
+    If Len(key) = 0 Then KeyMatches = False: Exit Function
+
+    Select Case mode
+        Case mmDia
+            Dim a As Double, b As Double
+            a = ExtractNum(target)
+            b = ExtractNum(key)
+            KeyMatches = (a >= 0 And b >= 0 And a = b)
+        Case mmExact
+            KeyMatches = (Norm(target) = Norm(key))
+        Case Else
+            nt = Norm(target)
+            nk = Norm(key)
+            KeyMatches = (Len(nt) > 0 And InStr(1, nt, nk, vbTextCompare) > 0)
+    End Select
+End Function
+
+'------------------------------------------------------------------
+' åˆ—æ–‡å­—("A" / "AO") â†’ åˆ—ç•ªå·ã€‚æ•°å­—ãŒæ¸¡ã•ã‚ŒãŸå ´åˆã¯ãã®ã¾ã¾æ•°å€¤åŒ–ã€‚
+' ä¸æ­£ãªå€¤ã¯ 0 ã‚’è¿”ã™ã€‚
+'------------------------------------------------------------------
+Public Function ColToNum(ByVal col As Variant) As Long
+    Dim s As String
+    s = Trim$(StrConv(CStr(col), vbNarrow))
+    If Len(s) = 0 Then ColToNum = 0: Exit Function
+
+    If IsNumeric(s) Then
+        ColToNum = CLng(s)
+    Else
+        On Error Resume Next
+        ColToNum = Range(s & "1").Column
+        If Err.Number <> 0 Then Err.Clear: ColToNum = 0
+        On Error GoTo 0
+    End If
+End Function
+
+'------------------------------------------------------------------
+' ã‚·ãƒ¼ãƒˆåã‚’ã‚†ã‚‹ãæ¢ã™ï¼ˆå…¨è§’/åŠè§’ã‚¹ãƒšãƒ¼ã‚¹ã®é•ã„ã‚’ç„¡è¦–ï¼‰
+' è¦‹ã¤ã‹ã‚‰ãªã‘ã‚Œã° Nothing
+'------------------------------------------------------------------
+Public Function FindSheet(ByVal wb As Workbook, ByVal sheetName As String) As Worksheet
+    Dim ws As Worksheet, target As String
+    target = Norm(sheetName)
+
+    For Each ws In wb.Worksheets
+        If Norm(ws.Name) = target Then
+            Set FindSheet = ws
+            Exit Function
+        End If
+    Next ws
+    Set FindSheet = Nothing
+End Function
+
+'------------------------------------------------------------------
+' ã‚»ãƒ«ãŒæ•°å€¤ãªã‚‰ãã®å€¤ã€ãã‚Œä»¥å¤–ã¯ Empty ã‚’è¿”ã™
+'------------------------------------------------------------------
+Public Function NumOrEmpty(ByVal c As Range) As Variant
+    If IsError(c.Value) Then
+        NumOrEmpty = Empty
+    ElseIf IsNumeric(c.Value) And Not IsEmpty(c.Value) And CStr(c.Value) <> "" Then
+        NumOrEmpty = CDbl(c.Value)
+    Else
+        NumOrEmpty = Empty
+    End If
+End Function
+
+'==================================================================
+' ã“ã“ã‹ã‚‰ M_Link.bas
+'==================================================================
+'==================================================================
+' M_Link - ç·æ‹¬è¡¨ã®ã‚·ãƒ¼ãƒˆé–“ãƒªãƒ³ã‚¯ã‚’æ•°å¼ã«ã™ã‚‹
+'
+' ãƒã‚¯ãƒ­ã¯1æœ¬ã ã‘ã€‚
+'
+'     ç·æ‹¬è¡¨ã®æ•°å¼ã‚’ä½œã‚Šç›´ã™()
+'
+' ä¸­ã§ã‚„ã‚‹ã“ã¨:
+'   1. ä»Šã‚ã‚‹ãƒªãƒ³ã‚¯ã‚’èª­ã¿å–ã£ã¦ã€Œãƒªãƒ³ã‚¯è¨­å®šã€ã‚·ãƒ¼ãƒˆã‚’ä½œã‚‹
+'      ï¼ˆå‰å›ã®è¨­å®šãŒã‚ã‚Œã°ã€å£å¾„ãªã©ã®æ‰‹ç›´ã—ã¯å¼•ãç¶™ãï¼‰
+'   2. ä½•ã‚’ã™ã‚‹ã‹ã‚’è¡¨ç¤ºã—ã¦ç¢ºèªã‚’å–ã‚‹
+'   3. ãƒãƒƒã‚¯ã‚¢ãƒƒãƒ—ã‚’ä½œã£ã¦ã‹ã‚‰æ•°å¼ã‚’æ›¸ãè¾¼ã‚€
+'   4. å€¤ãŒå¤‰ã‚ã£ãŸã‚»ãƒ«ã‚’ä¸€è¦§ã«ã—ã¦è¡¨ç¤ºã—ã€
+'      ç´å¾—ã§ããªã‘ã‚Œã°ãã®å ´ã§å…ƒã«æˆ»ã™
+'
+' æ•°å¼ã¯2ç¨®é¡ã€‚å–ã‚Šè¾¼ã¿æ™‚ã«ã©ã¡ã‚‰ã‹ã‚’è‡ªå‹•ã§å‰²ã‚Šå½“ã¦ã‚‹ã€‚
+'
+'   ç›´æ¥   ='è©¦æ˜ï¼ˆèˆ—400'!P4
+'          èˆ—è£…åˆ‡æ–­å·¥ã®ã‚ˆã†ã«ã€è»¢è¨˜å…ƒã®è¡ŒãŒå›ºå®šæ–‡å­—ã§ä¸¦ã¶ç®‡æ‰€ã€‚
+'
+'   æ¡ä»¶å¼ =SUMIFS('ç®¡å·¥ï¼ˆèˆ—50'!$T$16:$T$22,'ç®¡å·¥ï¼ˆèˆ—50'!$R$16:$R$22,$I31)
+'          èˆ—è£…ç‰ˆç ´ç •å·¥ã®ãƒ–ãƒ­ãƒƒã‚¯ã¯ã€ãã®å·¥äº‹ã§å‡ºã¦ãã‚‹èˆ—è£…åšã ã‘ãŒ
+'          è©°ã‚ã¦ä¸¦ã¶ã€‚åŒã˜ã‚»ãƒ«ã‚’è¦‹ã¦ã„ã‚‹ã¨åˆ¥ã®åšã•ã®æ•°é‡ã‚’æ‹¾ã†ã®ã§ã€
+'          ç·æ‹¬è¡¨ã®åšã•æ¬„ã¨ä¸€è‡´ã™ã‚‹è¡Œã‚’æ¢ã—ã¦åˆè¨ˆã™ã‚‹ã€‚
+'==================================================================
+
+Public Const LNK_SHEET As String = "ãƒªãƒ³ã‚¯è¨­å®š"
+Public Const REP_SHEET As String = "å®Ÿè¡Œçµæœ"
 
 Private Const DIA_HDR As Long = 6
 Private Const DIA_FIRST As Long = 7
@@ -37,7 +191,7 @@ Private Const LNK_FIRST As Long = 30
 
 Private Const TERM_PAT As String = "'([^']+)'!(\$?[A-Z]{1,3}\$?[0-9]+)"
 
-' —ñ1‚Â•ª
+' åˆ—1ã¤åˆ†
 Private Type TCol
     Letter  As String
     Header  As String
@@ -46,7 +200,7 @@ Private Type TCol
     Guessed As Boolean
 End Type
 
-' ‘‚«Š·‚¦‚½1ƒZƒ‹•ªiŒ³‚É–ß‚·‚½‚ß‚ÉT‚¦‚éj
+' æ›¸ãæ›ãˆãŸ1ã‚»ãƒ«åˆ†ï¼ˆå…ƒã«æˆ»ã™ãŸã‚ã«æ§ãˆã‚‹ï¼‰
 Private Type TChange
     Row_    As Long
     Col_    As Long
@@ -57,21 +211,21 @@ Private Type TChange
 End Type
 
 '==================================================================
-' —Bˆê‚Ì“üŒû
+' å”¯ä¸€ã®å…¥å£
 '==================================================================
-Public Sub ‘Š‡•\‚Ì”®‚ğì‚è’¼‚·()
+Public Sub ç·æ‹¬è¡¨ã®æ•°å¼ã‚’ä½œã‚Šç›´ã™()
     Dim ws As Worksheet, cfg As Worksheet
     Dim srcName As String, msg As String
     Dim nExp As Long, nFix As Long, nSkip As Long, nCond As Long, nGuess As Long
     Dim changes() As TChange, nChg As Long, nDiff As Long
     Dim scr As Boolean, calc As XlCalculation
 
-    ' --- ‘ÎÛƒV[ƒg‚ğŒˆ‚ß‚é ------------------------------------------
+    ' --- å¯¾è±¡ã‚·ãƒ¼ãƒˆã‚’æ±ºã‚ã‚‹ ------------------------------------------
     Set cfg = FindSheet(ThisWorkbook, LNK_SHEET)
     If cfg Is Nothing Then
         srcName = Trim$(InputBox( _
-            "”®‚ğì‚è’¼‚·‘Š‡•\ƒV[ƒg‚Ì–¼‘O‚ğ“ü‚ê‚Ä‚­‚¾‚³‚¢B" & vbCrLf & vbCrLf & _
-            "—á: ‘Š‡•\i“yH–j", "‘ÎÛƒV[ƒg", "‘Š‡•\i“yH–j"))
+            "æ•°å¼ã‚’ä½œã‚Šç›´ã™ç·æ‹¬è¡¨ã‚·ãƒ¼ãƒˆã®åå‰ã‚’å…¥ã‚Œã¦ãã ã•ã„ã€‚" & vbCrLf & vbCrLf & _
+            "ä¾‹: ç·æ‹¬è¡¨ï¼ˆåœŸå·¥äº‹ï¼‰", "å¯¾è±¡ã‚·ãƒ¼ãƒˆ", "ç·æ‹¬è¡¨ï¼ˆåœŸå·¥äº‹ï¼‰"))
         If Len(srcName) = 0 Then Exit Sub
     Else
         srcName = Trim$(CStr(cfg.Range("B2").Value))
@@ -79,7 +233,7 @@ Public Sub ‘Š‡•\‚Ì”®‚ğì‚è’¼‚·()
 
     Set ws = FindSheet(ThisWorkbook, srcName)
     If ws Is Nothing Then
-        MsgBox "ƒV[ƒg‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ: " & srcName, vbExclamation
+        MsgBox "ã‚·ãƒ¼ãƒˆãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“: " & srcName, vbExclamation
         Exit Sub
     End If
 
@@ -88,7 +242,7 @@ Public Sub ‘Š‡•\‚Ì”®‚ğì‚è’¼‚·()
     Application.ScreenUpdating = False
     Application.Calculation = xlCalculationManual
 
-    ' --- 1. İ’è‚ğì‚éi‘O‰ñ‚Ìè’¼‚µ‚Íˆø‚«Œp‚®j----------------------
+    ' --- 1. è¨­å®šã‚’ä½œã‚‹ï¼ˆå‰å›ã®æ‰‹ç›´ã—ã¯å¼•ãç¶™ãï¼‰----------------------
     On Error GoTo Failed
     BuildConfig ws, nExp, nFix, nSkip, nCond, nGuess
     Set cfg = FindSheet(ThisWorkbook, LNK_SHEET)
@@ -97,34 +251,34 @@ Public Sub ‘Š‡•\‚Ì”®‚ğì‚è’¼‚·()
     Application.Calculation = calc
     Application.ScreenUpdating = scr
 
-    ' --- 2. ‰½‚ğ‚·‚é‚©‚ğŒ©‚¹‚ÄŠm”F ------------------------------------
-    msg = "‘ÎÛƒV[ƒg : " & ws.Name & vbCrLf & vbCrLf & _
-          "ƒŠƒ“ƒNŒQ   : " & (nExp + nFix + nSkip) & " Œ" & vbCrLf & _
-          "  ‘SŒûŒa—ñ‚ÉL‚°‚é : " & nExp & " Œ" & vbCrLf & _
-          "  ¡‚ ‚é—ñ‚¾‚¯     : " & nFix & " Œ" & vbCrLf & _
-          "  èì‹Æ‚Ì‚Ü‚Ü     : " & nSkip & " Œ" & vbCrLf & vbCrLf & _
-          "  ‚¤‚¿ğŒ®       : " & nCond & " Œi•Ü‘•Œú‚ÅÆ‡j" & vbCrLf & vbCrLf
+    ' --- 2. ä½•ã‚’ã™ã‚‹ã‹ã‚’è¦‹ã›ã¦ç¢ºèª ------------------------------------
+    msg = "å¯¾è±¡ã‚·ãƒ¼ãƒˆ : " & ws.Name & vbCrLf & vbCrLf & _
+          "ãƒªãƒ³ã‚¯ç¾¤   : " & (nExp + nFix + nSkip) & " ä»¶" & vbCrLf & _
+          "  å…¨å£å¾„åˆ—ã«åºƒã’ã‚‹ : " & nExp & " ä»¶" & vbCrLf & _
+          "  ä»Šã‚ã‚‹åˆ—ã ã‘     : " & nFix & " ä»¶" & vbCrLf & _
+          "  æ‰‹ä½œæ¥­ã®ã¾ã¾     : " & nSkip & " ä»¶" & vbCrLf & vbCrLf & _
+          "  ã†ã¡æ¡ä»¶å¼       : " & nCond & " ä»¶ï¼ˆèˆ—è£…åšã§ç…§åˆï¼‰" & vbCrLf & vbCrLf
     If nGuess > 0 Then
-        msg = msg & "¦ ŒûŒa‚ğ " & nGuess & " ŒAŒ©o‚µ‚©‚ç„’è‚µ‚Ü‚µ‚½B" & vbCrLf & _
-                    "@ ÀsŒã‚Éu" & LNK_SHEET & "vƒV[ƒg‚Ìšˆó‚ğŠm‚©‚ß‚Ä‚­‚¾‚³‚¢B" & vbCrLf & vbCrLf
+        msg = msg & "â€» å£å¾„ã‚’ " & nGuess & " ä»¶ã€è¦‹å‡ºã—ã‹ã‚‰æ¨å®šã—ã¾ã—ãŸã€‚" & vbCrLf & _
+                    "ã€€ å®Ÿè¡Œå¾Œã«ã€Œ" & LNK_SHEET & "ã€ã‚·ãƒ¼ãƒˆã®â˜…å°ã‚’ç¢ºã‹ã‚ã¦ãã ã•ã„ã€‚" & vbCrLf & vbCrLf
     End If
-    msg = msg & "ƒoƒbƒNƒAƒbƒv‚ğì‚Á‚Ä‚©‚ç‘‚«‚İ‚Ü‚·B‘±‚¯‚Ü‚·‚©H"
+    msg = msg & "ãƒãƒƒã‚¯ã‚¢ãƒƒãƒ—ã‚’ä½œã£ã¦ã‹ã‚‰æ›¸ãè¾¼ã¿ã¾ã™ã€‚ç¶šã‘ã¾ã™ã‹ï¼Ÿ"
 
-    If MsgBox(msg, vbYesNo + vbQuestion, "Šm”F") <> vbYes Then
-        MsgBox "‘‚«‚İ‚Ís‚¢‚Ü‚¹‚ñ‚Å‚µ‚½B" & vbCrLf & _
-               "u" & LNK_SHEET & "vƒV[ƒg‚ÉA‰½‚ğ‚·‚é—\’è‚¾‚Á‚½‚©‚ªc‚Á‚Ä‚¢‚Ü‚·B", _
+    If MsgBox(msg, vbYesNo + vbQuestion, "ç¢ºèª") <> vbYes Then
+        MsgBox "æ›¸ãè¾¼ã¿ã¯è¡Œã„ã¾ã›ã‚“ã§ã—ãŸã€‚" & vbCrLf & _
+               "ã€Œ" & LNK_SHEET & "ã€ã‚·ãƒ¼ãƒˆã«ã€ä½•ã‚’ã™ã‚‹äºˆå®šã ã£ãŸã‹ãŒæ®‹ã£ã¦ã„ã¾ã™ã€‚", _
                vbInformation
         Exit Sub
     End If
 
-    ' --- 3. ƒoƒbƒNƒAƒbƒv ¨ ‘‚«‚İ ------------------------------------
+    ' --- 3. ãƒãƒƒã‚¯ã‚¢ãƒƒãƒ— â†’ æ›¸ãè¾¼ã¿ ------------------------------------
     Application.ScreenUpdating = False
     Application.Calculation = xlCalculationManual
 
     BackupSheet ws
     nChg = WriteAll(cfg, ws, changes)
 
-    Application.Calculation = calc      ' Œ³‚ÌŒvZƒ‚[ƒh‚É–ß‚·
+    Application.Calculation = calc      ' å…ƒã®è¨ˆç®—ãƒ¢ãƒ¼ãƒ‰ã«æˆ»ã™
     Application.CalculateFull
 
     nDiff = CountDiff(changes, nChg)
@@ -132,43 +286,43 @@ Public Sub ‘Š‡•\‚Ì”®‚ğì‚è’¼‚·()
 
     Application.ScreenUpdating = scr
 
-    ' --- 4. •Ï‚í‚Á‚½‚Æ‚±‚ë‚ğŒ©‚¹‚ÄAæ‚èÁ‚¹‚é‚æ‚¤‚É‚·‚é ----------------
+    ' --- 4. å¤‰ã‚ã£ãŸã¨ã“ã‚ã‚’è¦‹ã›ã¦ã€å–ã‚Šæ¶ˆã›ã‚‹ã‚ˆã†ã«ã™ã‚‹ ----------------
     If nDiff = 0 Then
-        MsgBox nChg & " ŒÂ‚ÌƒZƒ‹‚É”®‚ğ“ü‚ê‚Ü‚µ‚½B" & vbCrLf & _
-               "’l‚ª•Ï‚í‚Á‚½ƒZƒ‹‚Í‚ ‚è‚Ü‚¹‚ñB" & vbCrLf & vbCrLf & _
-               "Ú‚µ‚­‚Íu" & REP_SHEET & "vƒV[ƒg‚ğŒ©‚Ä‚­‚¾‚³‚¢B", _
-               vbInformation, "Š®—¹"
+        MsgBox nChg & " å€‹ã®ã‚»ãƒ«ã«æ•°å¼ã‚’å…¥ã‚Œã¾ã—ãŸã€‚" & vbCrLf & _
+               "å€¤ãŒå¤‰ã‚ã£ãŸã‚»ãƒ«ã¯ã‚ã‚Šã¾ã›ã‚“ã€‚" & vbCrLf & vbCrLf & _
+               "è©³ã—ãã¯ã€Œ" & REP_SHEET & "ã€ã‚·ãƒ¼ãƒˆã‚’è¦‹ã¦ãã ã•ã„ã€‚", _
+               vbInformation, "å®Œäº†"
     Else
-        If MsgBox(nChg & " ŒÂ‚ÌƒZƒ‹‚É”®‚ğ“ü‚ê‚Ü‚µ‚½B" & vbCrLf & _
-                  "‚»‚Ì‚¤‚¿ " & nDiff & " ŒÂ‚Å’l‚ª•Ï‚í‚Á‚Ä‚¢‚Ü‚·B" & vbCrLf & vbCrLf & _
-                  "u" & REP_SHEET & "vƒV[ƒg‚É•Ï‚í‚Á‚½ƒZƒ‹‚Ìˆê——‚ª‚ ‚è‚Ü‚·B" & vbCrLf & _
-                  "“à—e‚ğŠm‚©‚ß‚Ä‚©‚ç“š‚¦‚Ä‚­‚¾‚³‚¢B" & vbCrLf & vbCrLf & _
-                  "‚±‚Ì‚Ü‚ÜŠm’è‚µ‚Ü‚·‚©H" & vbCrLf & _
-                  "u‚¢‚¢‚¦v‚ğ‘I‚Ô‚ÆA‚·‚×‚ÄŒ³‚É–ß‚µ‚Ü‚·B", _
-                  vbYesNo + vbQuestion, "’l‚ª•Ï‚í‚è‚Ü‚µ‚½") <> vbYes Then
+        If MsgBox(nChg & " å€‹ã®ã‚»ãƒ«ã«æ•°å¼ã‚’å…¥ã‚Œã¾ã—ãŸã€‚" & vbCrLf & _
+                  "ãã®ã†ã¡ " & nDiff & " å€‹ã§å€¤ãŒå¤‰ã‚ã£ã¦ã„ã¾ã™ã€‚" & vbCrLf & vbCrLf & _
+                  "ã€Œ" & REP_SHEET & "ã€ã‚·ãƒ¼ãƒˆã«å¤‰ã‚ã£ãŸã‚»ãƒ«ã®ä¸€è¦§ãŒã‚ã‚Šã¾ã™ã€‚" & vbCrLf & _
+                  "å†…å®¹ã‚’ç¢ºã‹ã‚ã¦ã‹ã‚‰ç­”ãˆã¦ãã ã•ã„ã€‚" & vbCrLf & vbCrLf & _
+                  "ã“ã®ã¾ã¾ç¢ºå®šã—ã¾ã™ã‹ï¼Ÿ" & vbCrLf & _
+                  "ã€Œã„ã„ãˆã€ã‚’é¸ã¶ã¨ã€ã™ã¹ã¦å…ƒã«æˆ»ã—ã¾ã™ã€‚", _
+                  vbYesNo + vbQuestion, "å€¤ãŒå¤‰ã‚ã‚Šã¾ã—ãŸ") <> vbYes Then
             Application.ScreenUpdating = False
             UndoAll ws, changes, nChg
             Application.ScreenUpdating = scr
             Application.CalculateFull
-            MsgBox "Œ³‚É–ß‚µ‚Ü‚µ‚½B" & vbCrLf & _
-                   "u" & LNK_SHEET & "vƒV[ƒg‚Åİ’è‚ğ’¼‚µ‚Ä‚©‚çA" & vbCrLf & _
-                   "‚à‚¤ˆê“xÀs‚µ‚Ä‚­‚¾‚³‚¢B", vbInformation, "æ‚èÁ‚µ"
+            MsgBox "å…ƒã«æˆ»ã—ã¾ã—ãŸã€‚" & vbCrLf & _
+                   "ã€Œ" & LNK_SHEET & "ã€ã‚·ãƒ¼ãƒˆã§è¨­å®šã‚’ç›´ã—ã¦ã‹ã‚‰ã€" & vbCrLf & _
+                   "ã‚‚ã†ä¸€åº¦å®Ÿè¡Œã—ã¦ãã ã•ã„ã€‚", vbInformation, "å–ã‚Šæ¶ˆã—"
             Exit Sub
         End If
-        MsgBox "Šm’è‚µ‚Ü‚µ‚½B" & vbCrLf & _
-               "Œ³‚Ìó‘Ô‚Í BK_ ‚Ån‚Ü‚éƒV[ƒg‚Éc‚Á‚Ä‚¢‚Ü‚·B", vbInformation, "Š®—¹"
+        MsgBox "ç¢ºå®šã—ã¾ã—ãŸã€‚" & vbCrLf & _
+               "å…ƒã®çŠ¶æ…‹ã¯ BK_ ã§å§‹ã¾ã‚‹ã‚·ãƒ¼ãƒˆã«æ®‹ã£ã¦ã„ã¾ã™ã€‚", vbInformation, "å®Œäº†"
     End If
     Exit Sub
 
 Failed:
     Application.Calculation = calc
     Application.ScreenUpdating = scr
-    MsgBox "ˆ—’†‚ÉƒGƒ‰[‚ª”­¶‚µ‚Ü‚µ‚½B" & vbCrLf & _
+    MsgBox "å‡¦ç†ä¸­ã«ã‚¨ãƒ©ãƒ¼ãŒç™ºç”Ÿã—ã¾ã—ãŸã€‚" & vbCrLf & _
            Err.Number & ": " & Err.Description, vbCritical
 End Sub
 
 '==================================================================
-' 1. İ’è‚ğì‚é
+' 1. è¨­å®šã‚’ä½œã‚‹
 '==================================================================
 Private Sub BuildConfig(ByVal ws As Worksheet, ByRef nExp As Long, ByRef nFix As Long, _
                         ByRef nSkip As Long, ByRef nCond As Long, ByRef nGuess As Long)
@@ -178,19 +332,19 @@ Private Sub BuildConfig(ByVal ws As Worksheet, ByRef nExp As Long, ByRef nFix As
     Dim i As Long, r As Long, n As Long
     Dim thkCol As String, kndCol As String
 
-    ' ‘O‰ñ‚Ìè’¼‚µ‚ğT‚¦‚Ä‚¨‚­
+    ' å‰å›ã®æ‰‹ç›´ã—ã‚’æ§ãˆã¦ãŠã
     Set keep = CreateObject("Scripting.Dictionary")
     Set keepDia = CreateObject("Scripting.Dictionary")
     RememberEdits keep, keepDia, thkCol, kndCol
 
-    If Len(thkCol) = 0 Then thkCol = FindLabelCol(ws, "•Ü‘•Œú", "I")
-    If Len(kndCol) = 0 Then kndCol = FindLabelCol(ws, "“E", "E")
+    If Len(thkCol) = 0 Then thkCol = FindLabelCol(ws, "èˆ—è£…åš", "I")
+    If Len(kndCol) = 0 Then kndCol = FindLabelCol(ws, "æ‘˜", "E")
 
     Set grp = CreateObject("Scripting.Dictionary")
     Set keys = CreateObject("Scripting.Dictionary")
     ReDim cols(0 To 60)
 
-    ' --- ‘SƒŠƒ“ƒN‚ğ‘–¸ ---------------------------------------------
+    ' --- å…¨ãƒªãƒ³ã‚¯ã‚’èµ°æŸ» ---------------------------------------------
     For Each c In ws.UsedRange
         If Not HasSheetRef(c) Then GoTo NextCell
         f = Normalize(c.Formula)
@@ -241,14 +395,14 @@ Private Sub BuildConfig(ByVal ws As Worksheet, ByRef nExp As Long, ByRef nFix As
 NextCell:
     Next c
 
-    If grp.Count = 0 Then Err.Raise 5, , "ŒûŒa‚Ì•t‚¢‚½ƒV[ƒg‚ğQÆ‚·‚éƒŠƒ“ƒN‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ‚Å‚µ‚½B"
+    If grp.Count = 0 Then Err.Raise 5, , "å£å¾„ã®ä»˜ã„ãŸã‚·ãƒ¼ãƒˆã‚’å‚ç…§ã™ã‚‹ãƒªãƒ³ã‚¯ãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“ã§ã—ãŸã€‚"
 
-    ' --- “WŠJ‚Ì‰Â”Û -------------------------------------------------
+    ' --- å±•é–‹ã®å¯å¦ -------------------------------------------------
     Dim gkv As Variant
     For Each gkv In grp.Keys
         Dim g As Variant: g = grp(gkv)
         If g(3) = "NG_SIG" Then
-            g(4) = "—ñ‚²‚Æ‚ÉQÆƒZƒ‹‚ªˆá‚¤iƒV[ƒg‚Ìs”‚ªŒûŒa‚ÅˆÙ‚È‚éj"
+            g(4) = "åˆ—ã”ã¨ã«å‚ç…§ã‚»ãƒ«ãŒé•ã†ï¼ˆã‚·ãƒ¼ãƒˆã®è¡Œæ•°ãŒå£å¾„ã§ç•°ãªã‚‹ï¼‰"
         Else
             Dim shared_ As String: shared_ = ""
             Dim kei2 As String: kei2 = Split(gkv, "|")(1)
@@ -262,7 +416,7 @@ NextCell:
             Next p
             If UBound(Split(shared_, ",")) > 0 Then
                 g(3) = "NG_SHARE"
-                g(4) = "“¯‚¶QÆƒZƒ‹‚ğs " & shared_ & " ‚ª•ª‚¯‡‚¤"
+                g(4) = "åŒã˜å‚ç…§ã‚»ãƒ«ã‚’è¡Œ " & shared_ & " ãŒåˆ†ã‘åˆã†"
             Else
                 g(3) = "OK"
             End If
@@ -274,22 +428,22 @@ NextCell:
     ApplyKeptDia cols, nCol, keepDia
     GuessDiameters cols, nCol, nGuess
 
-    ' --- İ’èƒV[ƒg‚ğì‚é --------------------------------------------
+    ' --- è¨­å®šã‚·ãƒ¼ãƒˆã‚’ä½œã‚‹ --------------------------------------------
     Set cfg = ResetConfigSheet()
-    cfg.Range("A2").Value = "‘ÎÛƒV[ƒg"
+    cfg.Range("A2").Value = "å¯¾è±¡ã‚·ãƒ¼ãƒˆ"
     cfg.Range("B2").Value = ws.Name
-    cfg.Range("A3").Value = "Œú‚³—ñ"
+    cfg.Range("A3").Value = "åšã•åˆ—"
     cfg.Range("B3").Value = thkCol
-    cfg.Range("C3").Value = "í•Ê—ñ"
+    cfg.Range("C3").Value = "ç¨®åˆ¥åˆ—"
     cfg.Range("D3").Value = kndCol
     cfg.Range("B3").Interior.Color = RGB(255, 242, 204)
     cfg.Range("D3").Interior.Color = RGB(255, 242, 204)
-    cfg.Range("A4").Value = "‚±‚Ì•\‚ğ‘‚«Š·‚¦‚Ä‚©‚çA‚à‚¤ˆê“xƒ}ƒNƒ‚ğÀs‚·‚é‚Æ”½‰f‚³‚ê‚Ü‚·"
+    cfg.Range("A4").Value = "ã“ã®è¡¨ã‚’æ›¸ãæ›ãˆã¦ã‹ã‚‰ã€ã‚‚ã†ä¸€åº¦ãƒã‚¯ãƒ­ã‚’å®Ÿè¡Œã™ã‚‹ã¨åæ˜ ã•ã‚Œã¾ã™"
     cfg.Range("A4").Font.Italic = True
 
-    cfg.Range("A5").Value = "yŒûŒa‘Î‰•\z@‰©F‚¢ƒZƒ‹‚ğ‘‚«Š·‚¦‚é‚ÆA‚»‚Ì—ñ‚ÌQÆæ‚ª•Ï‚í‚è‚Ü‚·B‹ó—“‚Ì—ñ‚É‚Í”®‚ğ“ü‚ê‚Ü‚¹‚ñ"
+    cfg.Range("A5").Value = "ã€å£å¾„å¯¾å¿œè¡¨ã€‘ã€€é»„è‰²ã„ã‚»ãƒ«ã‚’æ›¸ãæ›ãˆã‚‹ã¨ã€ãã®åˆ—ã®å‚ç…§å…ˆãŒå¤‰ã‚ã‚Šã¾ã™ã€‚ç©ºæ¬„ã®åˆ—ã«ã¯æ•°å¼ã‚’å…¥ã‚Œã¾ã›ã‚“"
     cfg.Range("A5").Font.Bold = True
-    WriteRow cfg, DIA_HDR, Array("—ñ", "‘Š‡•\‚ÌŒ©o‚µ", "ŒûŒa", "Œn“", "”õl")
+    WriteRow cfg, DIA_HDR, Array("åˆ—", "ç·æ‹¬è¡¨ã®è¦‹å‡ºã—", "å£å¾„", "ç³»çµ±", "å‚™è€ƒ")
     StyleHeader cfg.Range(cfg.Cells(DIA_HDR, 1), cfg.Cells(DIA_HDR, 5))
 
     r = DIA_FIRST
@@ -301,18 +455,18 @@ NextCell:
         cfg.Cells(r, 3).Interior.Color = RGB(255, 242, 204)
         cfg.Cells(r, 4).Value = cols(i).Kei
         If cols(i).Guessed Then
-            cfg.Cells(r, 5).Value = "š„’è’lB‡‚Á‚Ä‚¢‚é‚©Šm‚©‚ß‚Ä‚­‚¾‚³‚¢"
+            cfg.Cells(r, 5).Value = "â˜…æ¨å®šå€¤ã€‚åˆã£ã¦ã„ã‚‹ã‹ç¢ºã‹ã‚ã¦ãã ã•ã„"
             cfg.Cells(r, 5).Font.Color = RGB(192, 0, 0)
         ElseIf Len(cols(i).Dia) = 0 Then
-            cfg.Cells(r, 5).Value = "ŒûŒa‚ª•ª‚©‚ç‚È‚¢‚½‚ß‹ó—“B“ü‚ê‚ê‚Î‚±‚Ì—ñ‚É‚à”®‚ª“ü‚è‚Ü‚·"
+            cfg.Cells(r, 5).Value = "å£å¾„ãŒåˆ†ã‹ã‚‰ãªã„ãŸã‚ç©ºæ¬„ã€‚å…¥ã‚Œã‚Œã°ã“ã®åˆ—ã«ã‚‚æ•°å¼ãŒå…¥ã‚Šã¾ã™"
         End If
         r = r + 1
     Next i
 
-    cfg.Cells(LNK_HDR - 1, 1).Value = "yƒŠƒ“ƒNˆê——z@—LŒø‚ğ‹ó—“‚É‚·‚é‚Æ‚»‚Ìs‚Í‘‚«Š·‚¦‚Ü‚¹‚ñ"
+    cfg.Cells(LNK_HDR - 1, 1).Value = "ã€ãƒªãƒ³ã‚¯ä¸€è¦§ã€‘ã€€æœ‰åŠ¹ã‚’ç©ºæ¬„ã«ã™ã‚‹ã¨ãã®è¡Œã¯æ›¸ãæ›ãˆã¾ã›ã‚“"
     cfg.Cells(LNK_HDR - 1, 1).Font.Bold = True
-    WriteRow cfg, LNK_HDR, Array("No", "—LŒø", "“WŠJ", "•û®", "‘ÎÛs", "Œú‚³", "í•Ê", "Œn“", _
-                                 "¡‚ ‚é—ñ", "ƒeƒ“ƒvƒŒ[ƒg", "Às‘O‚Ì’l", "”»’è", "”õl")
+    WriteRow cfg, LNK_HDR, Array("No", "æœ‰åŠ¹", "å±•é–‹", "æ–¹å¼", "å¯¾è±¡è¡Œ", "åšã•", "ç¨®åˆ¥", "ç³»çµ±", _
+                                 "ä»Šã‚ã‚‹åˆ—", "ãƒ†ãƒ³ãƒ—ãƒ¬ãƒ¼ãƒˆ", "å®Ÿè¡Œå‰ã®å€¤", "åˆ¤å®š", "å‚™è€ƒ")
     StyleHeader cfg.Range(cfg.Cells(LNK_HDR, 1), cfg.Cells(LNK_HDR, 13))
 
     r = LNK_FIRST
@@ -329,13 +483,13 @@ NextCell:
         firstDia = DiaOfCol(cols, nCol, firstCol)
 
         Dim way As String
-        way = "’¼Ú"
+        way = "ç›´æ¥"
         If IsNumeric(thk) And Len(firstDia) > 0 And Len(knd) > 0 Then
-            If HasBreakBlock(PrefixOf(CStr(gg(2))) & firstDia) Then way = "ğŒ®"
+            If HasBreakBlock(PrefixOf(CStr(gg(2))) & firstDia) Then way = "æ¡ä»¶å¼"
         End If
 
         cfg.Cells(r, 1).Value = n
-        cfg.Cells(r, 2).Value = IIf(gg(3) = "NG_SIG", "", "›")
+        cfg.Cells(r, 2).Value = IIf(gg(3) = "NG_SIG", "", "â—‹")
         cfg.Cells(r, 4).Value = way
         cfg.Cells(r, 5).Value = gr
         If IsNumeric(thk) Then cfg.Cells(r, 6).Value = thk
@@ -346,24 +500,24 @@ NextCell:
         cfg.Cells(r, 11).Value = SumOfCols(ws, gr, CStr(gg(0)))
 
         If gg(3) = "OK" Then
-            cfg.Cells(r, 3).Value = "›"
-            cfg.Cells(r, 12).Value = "“WŠJ‰Â"
+            cfg.Cells(r, 3).Value = "â—‹"
+            cfg.Cells(r, 12).Value = "å±•é–‹å¯"
             nExp = nExp + 1
         ElseIf gg(3) = "NG_SIG" Then
             cfg.Cells(r, 3).Value = ""
-            cfg.Cells(r, 12).Value = "‘ÎÛŠO"
+            cfg.Cells(r, 12).Value = "å¯¾è±¡å¤–"
             cfg.Cells(r, 12).Interior.Color = RGB(255, 199, 206)
-            cfg.Cells(r, 13).Value = gg(4) & "B‘‚«‚İ‚Ü‚¹‚ñièì‹Æ‚Ì‚Ü‚Üj"
+            cfg.Cells(r, 13).Value = gg(4) & "ã€‚æ›¸ãè¾¼ã¿ã¾ã›ã‚“ï¼ˆæ‰‹ä½œæ¥­ã®ã¾ã¾ï¼‰"
             nSkip = nSkip + 1
         Else
             cfg.Cells(r, 3).Value = ""
-            cfg.Cells(r, 12).Value = "“WŠJ•s‰Â"
+            cfg.Cells(r, 12).Value = "å±•é–‹ä¸å¯"
             cfg.Cells(r, 12).Interior.Color = RGB(255, 235, 156)
-            cfg.Cells(r, 13).Value = gg(4) & "B¡‚ ‚é—ñ‚¾‚¯‚É“ü‚ê‚Ü‚·"
+            cfg.Cells(r, 13).Value = gg(4) & "ã€‚ä»Šã‚ã‚‹åˆ—ã ã‘ã«å…¥ã‚Œã¾ã™"
             nFix = nFix + 1
         End If
 
-        ' ‘O‰ñ‚Ìè’¼‚µ‚ğˆø‚«Œp‚®
+        ' å‰å›ã®æ‰‹ç›´ã—ã‚’å¼•ãç¶™ã
         Dim kk2 As String: kk2 = CStr(sk)
         If keep.Exists(kk2) Then
             Dim kv As Variant: kv = keep(kk2)
@@ -372,7 +526,7 @@ NextCell:
             cfg.Cells(r, 4).Value = kv(2)
             way = CStr(kv(2))
         End If
-        If way = "ğŒ®" Then nCond = nCond + 1
+        If way = "æ¡ä»¶å¼" Then nCond = nCond + 1
         r = r + 1
     Next sk
 
@@ -381,7 +535,7 @@ NextCell:
     If cfg.Columns(13).ColumnWidth > 44 Then cfg.Columns(13).ColumnWidth = 44
 End Sub
 
-' ‘O‰ñ‚Ìİ’èƒV[ƒg‚©‚çAè’¼‚µ‚³‚ê‚¤‚é—“‚ğT‚¦‚é
+' å‰å›ã®è¨­å®šã‚·ãƒ¼ãƒˆã‹ã‚‰ã€æ‰‹ç›´ã—ã•ã‚Œã†ã‚‹æ¬„ã‚’æ§ãˆã‚‹
 Private Sub RememberEdits(ByVal keep As Object, ByVal keepDia As Object, _
                           ByRef thkCol As String, ByRef kndCol As String)
     Dim cfg As Worksheet, r As Long
@@ -422,7 +576,7 @@ Private Sub ApplyKeptDia(ByRef cols() As TCol, ByVal n As Long, ByVal keptDia As
 End Sub
 
 '==================================================================
-' 3. ‘‚«‚İ
+' 3. æ›¸ãè¾¼ã¿
 '==================================================================
 Private Function WriteAll(ByVal cfg As Worksheet, ByVal ws As Worksheet, _
                           ByRef changes() As TChange) As Long
@@ -478,16 +632,16 @@ NextDia:
             Dim dia As String: dia = ""
             If diaOf.Exists(colL) Then dia = diaOf(colL)
             If Len(dia) = 0 Then
-                note = note & colL & "—ñ‚ÍŒûŒa‚ª‹ó—“‚Ì‚½‚ß–¢‹L“üB "
+                note = note & colL & "åˆ—ã¯å£å¾„ãŒç©ºæ¬„ã®ãŸã‚æœªè¨˜å…¥ã€‚ "
                 GoTo NextCol
             End If
 
             Dim newF As String, why As String
-            If way = "ğŒ®" And Len(thick) = 0 Then way = "’¼Ú"
-            If way = "ğŒ®" Then
+            If way = "æ¡ä»¶å¼" And Len(thick) = 0 Then way = "ç›´æ¥"
+            If way = "æ¡ä»¶å¼" Then
                 newF = BuildSumifs(tmpl, dia, "$" & thkColW & tRow, kind, why)
                 If Len(newF) = 0 Then
-                    note = note & colL & "—ñ: " & why & " "
+                    note = note & colL & "åˆ—: " & why & " "
                     GoTo NextCol
                 End If
             Else
@@ -507,7 +661,7 @@ NextDia:
             On Error Resume Next
             cell_.Formula = newF
             If Err.Number <> 0 Then
-                note = note & colL & "—ñ: " & Err.Description & " "
+                note = note & colL & "åˆ—: " & Err.Description & " "
                 Err.Clear
                 On Error GoTo 0
                 GoTo NextCol
@@ -521,7 +675,7 @@ NextCol:
 NextRow:
     Next r
 
-    ' ‘‚«‚İŒã‚Ì’l‚ğT‚¦‚é
+    ' æ›¸ãè¾¼ã¿å¾Œã®å€¤ã‚’æ§ãˆã‚‹
     Application.Calculate
     Dim i As Long
     For i = 0 To n - 1
@@ -559,7 +713,7 @@ Private Sub UndoAll(ByVal ws As Worksheet, ByRef changes() As TChange, ByVal n A
 End Sub
 
 '==================================================================
-' 4. Œ‹‰Ê‚ğ‘‚«o‚·i•Ï‚í‚Á‚½ƒZƒ‹ { “_ŒŸj
+' 4. çµæœã‚’æ›¸ãå‡ºã™ï¼ˆå¤‰ã‚ã£ãŸã‚»ãƒ« ï¼‹ ç‚¹æ¤œï¼‰
 '==================================================================
 Private Sub WriteReport(ByVal ws As Worksheet, ByRef changes() As TChange, ByVal n As Long)
     Dim rep As Worksheet, i As Long, r As Long
@@ -573,14 +727,14 @@ Private Sub WriteReport(ByVal ws As Worksheet, ByRef changes() As TChange, ByVal
 
     Set rep = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
     rep.Name = REP_SHEET
-    rep.Range("A1").Value = "ÀsŒ‹‰Ê@" & Format$(Now, "yyyy/mm/dd hh:nn") & "@‘ÎÛ: " & ws.Name
+    rep.Range("A1").Value = "å®Ÿè¡Œçµæœã€€" & Format$(Now, "yyyy/mm/dd hh:nn") & "ã€€å¯¾è±¡: " & ws.Name
     rep.Range("A1").Font.Bold = True
     rep.Range("A1").Font.Size = 12
 
-    ' --- ’l‚ª•Ï‚í‚Á‚½ƒZƒ‹ --------------------------------------------
-    rep.Range("A3").Value = "y’l‚ª•Ï‚í‚Á‚½ƒZƒ‹z@“à—e‚ğŠm‚©‚ß‚Ä‚­‚¾‚³‚¢"
+    ' --- å€¤ãŒå¤‰ã‚ã£ãŸã‚»ãƒ« --------------------------------------------
+    rep.Range("A3").Value = "ã€å€¤ãŒå¤‰ã‚ã£ãŸã‚»ãƒ«ã€‘ã€€å†…å®¹ã‚’ç¢ºã‹ã‚ã¦ãã ã•ã„"
     rep.Range("A3").Font.Bold = True
-    WriteRow rep, 4, Array("ƒZƒ‹", "Às‘O", "ÀsŒã", "·", "“ü‚ê‚½”®")
+    WriteRow rep, 4, Array("ã‚»ãƒ«", "å®Ÿè¡Œå‰", "å®Ÿè¡Œå¾Œ", "å·®", "å…¥ã‚ŒãŸæ•°å¼")
     StyleHeader rep.Range("A4:E4")
 
     r = 5
@@ -600,16 +754,16 @@ Private Sub WriteReport(ByVal ws As Worksheet, ByRef changes() As TChange, ByVal
 NextChange:
     Next i
     If r = 5 Then
-        rep.Cells(5, 1).Value = "i’l‚ª•Ï‚í‚Á‚½ƒZƒ‹‚Í‚ ‚è‚Ü‚¹‚ñj"
+        rep.Cells(5, 1).Value = "ï¼ˆå€¤ãŒå¤‰ã‚ã£ãŸã‚»ãƒ«ã¯ã‚ã‚Šã¾ã›ã‚“ï¼‰"
         r = 6
     End If
 
-    ' --- “_ŒŸF’†g‚ª‚ ‚é‚Ì‚ÉƒŠƒ“ƒN‚³‚ê‚Ä‚¢‚È‚¢ƒV[ƒg --------------------
+    ' --- ç‚¹æ¤œï¼šä¸­èº«ãŒã‚ã‚‹ã®ã«ãƒªãƒ³ã‚¯ã•ã‚Œã¦ã„ãªã„ã‚·ãƒ¼ãƒˆ --------------------
     r = r + 2
-    rep.Cells(r, 1).Value = "yƒŠƒ“ƒN‚³‚ê‚Ä‚¢‚È‚¢ŒûŒa•t‚«ƒV[ƒgz"
+    rep.Cells(r, 1).Value = "ã€ãƒªãƒ³ã‚¯ã•ã‚Œã¦ã„ãªã„å£å¾„ä»˜ãã‚·ãƒ¼ãƒˆã€‘"
     rep.Cells(r, 1).Font.Bold = True
     r = r + 1
-    WriteRow rep, r, Array("ƒV[ƒg", "•\¦", "ŠŒ©")
+    WriteRow rep, r, Array("ã‚·ãƒ¼ãƒˆ", "è¡¨ç¤º", "æ‰€è¦‹")
     StyleHeader rep.Range(rep.Cells(r, 1), rep.Cells(r, 3))
     r = r + 1
 
@@ -620,12 +774,12 @@ NextChange:
         hasData = (Application.WorksheetFunction.Count(sh.UsedRange) > 0) And _
                   (Application.WorksheetFunction.Sum(sh.UsedRange) <> 0)
         rep.Cells(r, 1).Value = sh.Name
-        rep.Cells(r, 2).Value = IIf(sh.Visible = xlSheetVisible, "•\¦", "”ñ•\¦")
+        rep.Cells(r, 2).Value = IIf(sh.Visible = xlSheetVisible, "è¡¨ç¤º", "éè¡¨ç¤º")
         If hasData Then
-            rep.Cells(r, 3).Value = "š’†g‚ª‚ ‚é‚Ì‚ÉƒŠƒ“ƒN‚³‚ê‚Ä‚¢‚Ü‚¹‚ñB’£‚è–Y‚ê‚Ì‰Â”\«"
+            rep.Cells(r, 3).Value = "â˜…ä¸­èº«ãŒã‚ã‚‹ã®ã«ãƒªãƒ³ã‚¯ã•ã‚Œã¦ã„ã¾ã›ã‚“ã€‚å¼µã‚Šå¿˜ã‚Œã®å¯èƒ½æ€§"
             rep.Cells(r, 3).Interior.Color = RGB(255, 199, 206)
         Else
-            rep.Cells(r, 3).Value = "‹óB–¢g—p‚Ì—Œ`‚Æ‚İ‚ç‚ê‚Ü‚·"
+            rep.Cells(r, 3).Value = "ç©ºã€‚æœªä½¿ç”¨ã®é››å½¢ã¨ã¿ã‚‰ã‚Œã¾ã™"
         End If
         r = r + 1
 NextSheet:
@@ -644,10 +798,10 @@ Private Function SheetOfFormula(ByVal f As String) As String
 End Function
 
 '==================================================================
-' •Ü‘•”Å”jÓHƒuƒƒbƒN‚ÌŒŸo‚ÆAğŒ®‚Ì‘g‚İ—§‚Ä
+' èˆ—è£…ç‰ˆç ´ç •å·¥ãƒ–ãƒ­ãƒƒã‚¯ã®æ¤œå‡ºã¨ã€æ¡ä»¶å¼ã®çµ„ã¿ç«‹ã¦
 '
-' “]‹LŒ³‚Ì•Ü‘•Œú‚ÍH–‚²‚Æ‚É‹l‚ß‚Ä•À‚Ôi4cm ‚ª–³‚¯‚ê‚Î 5cm ‚ªæ“ª‚É—ˆ‚éjB
-' “¯‚¶ƒZƒ‹‚ğŒ©‚Ä‚¢‚é‚Æ•Ê‚ÌŒú‚³‚Ì”—Ê‚ğE‚¤‚Ì‚ÅAŒú‚³‚ÅÆ‡‚·‚éB
+' è»¢è¨˜å…ƒã®èˆ—è£…åšã¯å·¥äº‹ã”ã¨ã«è©°ã‚ã¦ä¸¦ã¶ï¼ˆ4cm ãŒç„¡ã‘ã‚Œã° 5cm ãŒå…ˆé ­ã«æ¥ã‚‹ï¼‰ã€‚
+' åŒã˜ã‚»ãƒ«ã‚’è¦‹ã¦ã„ã‚‹ã¨åˆ¥ã®åšã•ã®æ•°é‡ã‚’æ‹¾ã†ã®ã§ã€åšã•ã§ç…§åˆã™ã‚‹ã€‚
 '==================================================================
 Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Long, _
                            ByRef asThk As Long, ByRef asSum As Long, _
@@ -660,7 +814,7 @@ Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lon
 
     For r = 1 To 60
         For c = 1 To 60
-            If InStr(1, Norm(ws.Cells(r, c).Value), " •Ü‘•”Å”jÓ", vbTextCompare) > 0 Then
+            If InStr(1, Norm(ws.Cells(r, c).Value), "â–¡èˆ—è£…ç‰ˆç ´ç •", vbTextCompare) > 0 Then
                 sect = r
                 Exit For
             End If
@@ -673,8 +827,8 @@ Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lon
         kinds = "": totals = ""
         For c = 1 To 60
             Dim v As String: v = Norm(ws.Cells(r, c).Value)
-            If v = "í•ÊE•Ü‘•Œú" Then kinds = kinds & c & ","
-            If v = "‡Œv" Then totals = totals & c & ","
+            If v = "ç¨®åˆ¥ãƒ»èˆ—è£…åš" Then kinds = kinds & c & ","
+            If v = "åˆè¨ˆ" Then totals = totals & c & ","
         Next c
         If Len(kinds) > 0 And Len(totals) > 0 Then
             hdr = r
@@ -738,11 +892,11 @@ Private Function BuildSumifs(ByVal tmpl As String, ByVal dia As String, _
 
     why = ""
     pre = PrefixOf(tmpl)
-    If Len(pre) = 0 Then why = "ƒV[ƒg–¼‚ğæ‚èo‚¹‚Ü‚¹‚ñ": Exit Function
+    If Len(pre) = 0 Then why = "ã‚·ãƒ¼ãƒˆåã‚’å–ã‚Šå‡ºã›ã¾ã›ã‚“": Exit Function
 
     sn = pre & dia
     If Not FindBlock(sn, r0, r1, aT, aS, cT, cS) Then
-        why = "•Ü‘•”Å”jÓH‚ÌƒuƒƒbƒN‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ(" & sn & ")"
+        why = "èˆ—è£…ç‰ˆç ´ç •å·¥ã®ãƒ–ãƒ­ãƒƒã‚¯ãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“(" & sn & ")"
         Exit Function
     End If
 
@@ -752,7 +906,7 @@ Private Function BuildSumifs(ByVal tmpl As String, ByVal dia As String, _
         out = out & SumifsTerm(sn, cS, cT, r0, r1, thkRef)
     End If
 
-    If Len(out) = 0 Then why = "í•Ê‚ª As ‚Å‚à Co ‚Å‚à‚ ‚è‚Ü‚¹‚ñ(" & kind & ")": Exit Function
+    If Len(out) = 0 Then why = "ç¨®åˆ¥ãŒ As ã§ã‚‚ Co ã§ã‚‚ã‚ã‚Šã¾ã›ã‚“(" & kind & ")": Exit Function
     BuildSumifs = "=" & out
 End Function
 
@@ -770,7 +924,7 @@ Private Function Rng(ByVal col As Long, ByVal r0 As Long, ByVal r1 As Long) As S
 End Function
 
 '==================================================================
-' •â•
+' è£œåŠ©
 '==================================================================
 Private Sub AddCol(ByRef cols() As TCol, ByRef n As Long, ByVal letter As String, _
                    ByVal header As String, ByVal kei As String, ByVal dia As String)
@@ -923,7 +1077,7 @@ Private Function DiaOfCol(ByRef cols() As TCol, ByVal n As Long, ByVal letter As
 End Function
 
 Private Function SumOfCols(ByVal ws As Worksheet, ByVal r As Long, ByVal cols As String) As Variant
-    ' any ‚Í VBA ‚Ì—\–ñŒê‚È‚Ì‚Åg‚¦‚È‚¢
+    ' any ã¯ VBA ã®äºˆç´„èªãªã®ã§ä½¿ãˆãªã„
     Dim tc As Variant, tot As Double, found As Boolean
     For Each tc In Split(cols, ",")
         Dim v As Variant
@@ -958,13 +1112,13 @@ Private Function HasSheetRef(ByVal c As Range) As Boolean
     Dim f As String
     If Not c.HasFormula Then Exit Function
     f = c.Formula
-    If InStr(f, "•\†") > 0 Then Exit Function
+    If InStr(f, "è¡¨ç´™") > 0 Then Exit Function
     HasSheetRef = (InStr(f, "!") > 0) Or (InStr(f, "INDIRECT") > 0)
 End Function
 
 '------------------------------------------------------------------
-' ˆÈ‘O‚±‚Ìƒ}ƒNƒ‚ª“ü‚ê‚½ INDIRECT Œ`®‚ğA•’Ê‚ÌƒV[ƒgQÆ‚É–ß‚·B
-' ˆê“x•ÏŠ·‚µ‚½Œã‚Å‚à“Ç‚İ’¼‚¹‚é‚æ‚¤‚É‚·‚é‚½‚ßB
+' ä»¥å‰ã“ã®ãƒã‚¯ãƒ­ãŒå…¥ã‚ŒãŸ INDIRECT å½¢å¼ã‚’ã€æ™®é€šã®ã‚·ãƒ¼ãƒˆå‚ç…§ã«æˆ»ã™ã€‚
+' ä¸€åº¦å¤‰æ›ã—ãŸå¾Œã§ã‚‚èª­ã¿ç›´ã›ã‚‹ã‚ˆã†ã«ã™ã‚‹ãŸã‚ã€‚
 '------------------------------------------------------------------
 Private Function Normalize(ByVal f As String) As String
     Dim re As Object, ms As Object, m As Object
@@ -1084,7 +1238,7 @@ Private Function ResetConfigSheet() As Worksheet
     Application.DisplayAlerts = True
     Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
     ws.Name = LNK_SHEET
-    ws.Range("A1").Value = "ƒŠƒ“ƒNİ’è"
+    ws.Range("A1").Value = "ãƒªãƒ³ã‚¯è¨­å®š"
     ws.Range("A1").Font.Bold = True
     ws.Range("A1").Font.Size = 12
     Set ResetConfigSheet = ws
