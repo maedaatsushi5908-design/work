@@ -907,7 +907,9 @@ Private Function BuildSumif(ByVal tmpl As String, ByVal dia As String, _
                              ByVal thkRef As String, ByVal kind As String, _
                              ByRef why As String) As String
     Dim sn As String, pre As String, out As String
-    Dim r0 As Long, r1 As Long, aT As Long, aS As Long, cT As Long, cS As Long
+    Dim r0 As Long, r1 As Long
+    ' aS は予約語 As と衝突する（VBA は大文字小文字を区別しない）ので使わない
+    Dim asThk As Long, asSum As Long, coThk As Long, coSum As Long
 
     why = ""
     If Len(dia) = 0 Then
@@ -919,26 +921,28 @@ Private Function BuildSumif(ByVal tmpl As String, ByVal dia As String, _
         If Len(pre) = 0 Then why = "シート名を取り出せません": Exit Function
         sn = pre & dia
     End If
-    If Not FindBlock(sn, r0, r1, aT, aS, cT, cS) Then
+    If Not FindBlock(sn, r0, r1, asThk, asSum, coThk, coSum) Then
         why = "舗装版破砕工のブロックが見つかりません(" & sn & ")"
         Exit Function
     End If
 
-    If InStr(kind, "As") > 0 And aS > 0 Then out = SumifTerm(sn, aS, aT, r0, r1, thkRef)
-    If InStr(kind, "Co") > 0 And cS > 0 Then
+    If InStr(kind, "As") > 0 And asSum > 0 Then
+        out = SumifTerm(sn, asSum, asThk, r0, r1, thkRef)
+    End If
+    If InStr(kind, "Co") > 0 And coSum > 0 Then
         If Len(out) > 0 Then out = out & "+"
-        out = out & SumifTerm(sn, cS, cT, r0, r1, thkRef)
+        out = out & SumifTerm(sn, coSum, coThk, r0, r1, thkRef)
     End If
 
     If Len(out) = 0 Then
-        If InStr(kind, "Co") > 0 And cS = 0 Then
+        If InStr(kind, "Co") > 0 And coSum = 0 Then
             why = sn & " に Co 側の欄が無いため埋められません"
         Else
             why = "種別が As でも Co でもありません(" & kind & ")"
         End If
         Exit Function
     End If
-    If InStr(kind, "Co") > 0 And cS = 0 Then
+    If InStr(kind, "Co") > 0 And coSum = 0 Then
         why = "注意: " & sn & " に Co 側の欄が無いため As だけを合計しています"
     End If
     BuildSumif = "=" & out

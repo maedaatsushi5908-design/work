@@ -80,7 +80,9 @@ def check(path):
         code = strip_literals(stripped)
 
         for name in VAR_AS.findall(code):
-            if name.lower() in RESERVED and name.lower() != "as":
+            # "as" も除外しない。VBA は大文字小文字を区別しないので
+            # aS のような名前は予約語 As と衝突する。
+            if name.lower() in RESERVED:
                 problems.append((ln, f"予約語を名前に使用: {name}", code[:78]))
         for name in FOR_EACH.findall(code):
             if name.lower() in RESERVED:
