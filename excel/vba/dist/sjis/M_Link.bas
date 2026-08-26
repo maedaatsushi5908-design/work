@@ -46,7 +46,7 @@ End Enum
 '   直接   ='試掘（舗400'!P4
 '          舗装切断工のように、転記元の行が固定文字で並ぶ箇所。
 '
-'   条件式 =SUMIFS('管工（舗50'!$T$16:$T$22,'管工（舗50'!$R$16:$R$22,$I31)
+'   条件式 =SUMIF('試掘（舗50'!$O$11:$O$17,'総括表（土工事）'!$I14,'試掘（舗50'!$P$11:$P$17)
 '          舗装版破砕工のブロックは、その工事で出てくる舗装厚だけが
 '          詰めて並ぶ。同じセルを見ていると別の厚さの数量を拾うので、
 '          総括表の厚さ欄と一致する行を探して合計する。
@@ -646,7 +646,7 @@ NextDia:
             Dim newF As String, why As String
             If way = "条件式" And Len(thick) = 0 Then way = "直接"
             If way = "条件式" Then
-                newF = BuildSumifs(tmpl, dia, "$" & thkColW & tRow, kind, why)
+                newF = BuildSumif(tmpl, dia, "'" & ws.Name & "'!$" & thkColW & tRow, kind, why)
                 If Len(newF) = 0 Then
                     note = note & colL & "列: " & why & " "
                     GoTo NextCol
@@ -768,7 +768,7 @@ Private Sub FillYellow(ByVal cfg As Worksheet, ByVal ws As Worksheet, _
         End If
 
         Dim why As String, newF As String
-        newF = BuildSumifs("='" & sn & "'!A1", "", "$" & thkColW & c.Row, kind, why)
+        newF = BuildSumif("='" & sn & "'!A1", "", "'" & ws.Name & "'!$" & thkColW & c.Row, kind, why)
         If Len(newF) = 0 Then
             mUnfilled.Add Array(c.Address(False, False), kei, why)
             nLeft = nLeft + 1
@@ -1036,6 +1036,10 @@ NextPair:
     Next r
     If r1 < r0 Then Exit Function
 
+    ' 予備を1行足す。次の工事で舗装厚が1種類増えても式を直さずに済む。
+    ' SUMIF は空欄に当たらないので、余分に含めても結果は変わらない。
+    r1 = r1 + 1
+
     FindBlock = True
 End Function
 
@@ -1055,7 +1059,7 @@ Private Function HasBreakBlock(ByVal sn As String) As Boolean
     HasBreakBlock = FindBlock(sn, a, b, c, d, e, f)
 End Function
 
-Private Function BuildSumifs(ByVal tmpl As String, ByVal dia As String, _
+Private Function BuildSumif(ByVal tmpl As String, ByVal dia As String, _
                              ByVal thkRef As String, ByVal kind As String, _
                              ByRef why As String) As String
     Dim sn As String, pre As String, out As String
@@ -1076,10 +1080,10 @@ Private Function BuildSumifs(ByVal tmpl As String, ByVal dia As String, _
         Exit Function
     End If
 
-    If InStr(kind, "As") > 0 And aS > 0 Then out = SumifsTerm(sn, aS, aT, r0, r1, thkRef)
+    If InStr(kind, "As") > 0 And aS > 0 Then out = SumifTerm(sn, aS, aT, r0, r1, thkRef)
     If InStr(kind, "Co") > 0 And cS > 0 Then
         If Len(out) > 0 Then out = out & "+"
-        out = out & SumifsTerm(sn, cS, cT, r0, r1, thkRef)
+        out = out & SumifTerm(sn, cS, cT, r0, r1, thkRef)
     End If
 
     If Len(out) = 0 Then
@@ -1093,7 +1097,7 @@ Private Function BuildSumifs(ByVal tmpl As String, ByVal dia As String, _
     If InStr(kind, "Co") > 0 And cS = 0 Then
         why = "注意: " & sn & " に Co 側の欄が無いため As だけを合計しています"
     End If
-    BuildSumifs = "=" & out
+    BuildSumif = "=" & out
 End Function
 
 ' 系統名に合う転記元シートを1つだけ見つける
@@ -1145,11 +1149,16 @@ Private Function SheetInFormula(ByVal f As String) As String
     If ms.Count > 0 Then SheetInFormula = ms(0).SubMatches(0)
 End Function
 
-Private Function SumifsTerm(ByVal sn As String, ByVal sumCol As Long, ByVal thkCol As Long, _
-                            ByVal r0 As Long, ByVal r1 As Long, ByVal thkRef As String) As String
+'------------------------------------------------------------------
+' 1項ぶんの SUMIF を組み立てる
+'   =SUMIF('試掘（舗50'!$O$11:$O$17,'総括表（土工事）'!$I14,'試掘（舗50'!$P$11:$P$17)
+'           └ 転記元の舗装厚        └ 総括表の厚さ欄      └ 転記元の合計
+'------------------------------------------------------------------
+Private Function SumifTerm(ByVal sn As String, ByVal sumCol As Long, ByVal thkCol As Long, _
+                           ByVal r0 As Long, ByVal r1 As Long, ByVal thkRef As String) As String
     Dim q As String
     q = "'" & sn & "'!"
-    SumifsTerm = "SUMIFS(" & q & Rng(sumCol, r0, r1) & "," & q & Rng(thkCol, r0, r1) & "," & thkRef & ")"
+    SumifTerm = "SUMIF(" & q & Rng(thkCol, r0, r1) & "," & thkRef & "," & q & Rng(sumCol, r0, r1) & ")"
 End Function
 
 Private Function Rng(ByVal col As Long, ByVal r0 As Long, ByVal r1 As Long) As String
