@@ -63,6 +63,20 @@ Private Const BLOCK_LABEL As String = "□舗装版破砕"
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
 
+' 入れた式の一覧を残すシート。要らなければ消してよい
+Private Const REPORT_SHEET As String = "転記結果"
+
+' 書き込んだ1セル分の控え
+Private Type TRec
+    Addr_   As String
+    Thick   As String
+    Kind    As String
+    Src     As String
+    Expr    As String
+    OldV    As Variant
+    NewV    As Variant
+End Type
+
 '==================================================================
 ' ここから下は工事が変わっても直さない
 '==================================================================
@@ -79,7 +93,8 @@ Private mBlock As Object
 Public Sub 舗装版破砕を転記する()
     Dim ws As Worksheet
     Dim cols() As String, srcs() As String, nCol As Long
-    Dim msg As String, i As Long, firstCol As Long
+    Dim recs() As TRec
+    Dim msg As String, i As Long, firstCol As Long, thkCol As Long
     Dim nWrite As Long, nSkip As Long, nRow As Long, why As String
     Dim scr As Boolean, calc As XlCalculation, bk As String
 
@@ -102,10 +117,17 @@ Public Sub 舗装版破砕を転記する()
 
     firstCol = FirstMapCol(cols, nCol)
     nRow = CountSectionRows(ws, firstCol)
+    thkCol = ThickCol(ws, firstCol)
+    If thkCol = 0 Then
+        MsgBox SECTION_LABEL & " の行に舗装厚の数値が見つかりません。" & vbCrLf & _
+               "対象シートが違うかもしれません。", vbExclamation, "舗装版破砕の転記"
+        Exit Sub
+    End If
 
     ' --- 何をするかを見せて確認 --------------------------------------
     msg = "対象シート: " & ws.Name & vbCrLf & _
-          SECTION_LABEL & " の行: " & nRow & " 行" & vbCrLf & vbCrLf & _
+          SECTION_LABEL & " の行: " & nRow & " 行" & vbCrLf & _
+          "舗装厚の列: " & ColLetter(thkCol) & " 列" & vbCrLf & vbCrLf & _
           "転記元の対応" & vbCrLf & _
           "----------------------------------------" & vbCrLf
     For i = 0 To nCol - 1
@@ -127,10 +149,11 @@ Public Sub 舗装版破砕を転記する()
     Application.Calculation = xlCalculationManual
 
     bk = MakeBackup(ws)
-    nWrite = WriteAll(ws, cols, srcs, nCol, firstCol, nSkip, why)
+    nWrite = WriteAll(ws, cols, srcs, nCol, firstCol, thkCol, nSkip, why, recs)
 
     Application.Calculation = calc
     Application.CalculateFull
+    If nWrite > 0 Then WriteReport ws, recs, nWrite
     Application.ScreenUpdating = scr
     On Error GoTo 0
 
@@ -146,9 +169,12 @@ Public Sub 舗装版破砕を転記する()
             msg = msg & "見送ったセル: " & nSkip & " 個" & vbCrLf & why & vbCrLf
         End If
         msg = msg & vbCrLf & _
+              "★このシートは「ゼロ値を表示しない」設定です。" & vbCrLf & _
+              "　数式を入れても、結果が 0 のセルは画面上は空欄に見えます。" & vbCrLf & _
+              "　入れた式は「" & REPORT_SHEET & "」シートに一覧で出しました。" & vbCrLf & _
+              "　セル上で見たいときは Ctrl と Shift と @ で数式表示に切り替えます。" & vbCrLf & vbCrLf & _
               "元の状態は " & bk & " シートに残しています。" & vbCrLf & _
-              "「計」の行の値が前と変わっていないか確かめてください。" & vbCrLf & _
-              "変わっていれば、厚さ別の内訳がずれていたということです。"
+              "「計」の行の値が前と変わっていないか確かめてください。"
         MsgBox msg, vbInformation, "完了"
     End If
     Exit Sub
@@ -165,43 +191,167 @@ End Sub
 '==================================================================
 Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                           ByRef srcs() As String, ByVal nCol As Long, _
-                          ByVal firstCol As Long, ByRef nSkip As Long, _
-                          ByRef why As String) As Long
+                          ByVal firstCol As Long, ByVal thkCol As Long, _
+                          ByRef nSkip As Long, ByRef why As String, _
+                          ByRef recs() As TRec) As Long
     Dim r As Long, i As Long, lastRow As Long, n As Long
     Dim thkRef As String, kind As String, f As String, note As String
-    Dim cel As Range
+    Dim cel As Range, thkCell As Range
 
     why = ""
     lastRow = LastUsedRow(ws)
+    ReDim recs(0 To 400)
 
     For r = 1 To lastRow
         If IsSectionRow(ws, r, firstCol) Then
-            thkRef = ThickRef(ws, r, firstCol)
-            kind = KindOfRow(ws, r, firstCol)
-            If Len(thkRef) > 0 And Len(kind) > 0 Then
-                For i = 0 To nCol - 1
-                    Set cel = ws.Cells(r, ColNum(cols(i)))
-                    If IsInputCell(cel) Then
-                        note = ""
-                        f = BuildSumif(srcs(i), ws.Name, thkRef, kind, note)
-                        If Len(f) = 0 Then
-                            nSkip = nSkip + 1
-                            If Len(note) > 0 And InStr(why, note) = 0 Then
-                                why = why & "　" & note & vbCrLf
+            Set thkCell = ws.Cells(r, thkCol).MergeArea.Cells(1, 1)
+
+            ' 「計」などの文字が入っている行は合計欄なので触らない。
+            ' 空欄の行は書き込む。予備の行に厚さを入れたとき、
+            ' そのまま数量が出るようにするため（SUMIF は空欄に当たらない）。
+            If Not IsTextCell(thkCell) Then
+                thkRef = "$" & ColLetter(thkCell.Column) & thkCell.Row
+                kind = KindOfRow(ws, r, firstCol)
+                If Len(kind) > 0 Then
+                    For i = 0 To nCol - 1
+                        Set cel = ws.Cells(r, ColNum(cols(i)))
+                        If IsInputCell(cel) Then
+                            note = ""
+                            f = BuildSumif(srcs(i), ws.Name, thkRef, kind, note)
+                            If Len(f) = 0 Then
+                                nSkip = nSkip + 1
+                            Else
+                                If n > UBound(recs) Then ReDim Preserve recs(0 To n + 200)
+                                recs(n).Addr_ = cel.Address(False, False)
+                                recs(n).Thick = CStr(thkCell.Text)
+                                recs(n).Kind = kind
+                                recs(n).Src = srcs(i)
+                                recs(n).Expr = f
+                                recs(n).OldV = NumOrEmpty(cel)
+                                cel.Formula = f
+                                n = n + 1
                             End If
-                        Else
-                            cel.Formula = f
-                            n = n + 1
                             If Len(note) > 0 And InStr(why, note) = 0 Then
                                 why = why & "　" & note & vbCrLf
                             End If
                         End If
-                    End If
-                Next i
+                    Next i
+                End If
             End If
         End If
     Next r
     WriteAll = n
+End Function
+
+' 数値でも空欄でもない、文字の入ったセルか（「計」など）
+Private Function IsTextCell(ByVal c As Range) As Boolean
+    Dim v As Variant
+    v = c.Value
+    If IsEmpty(v) Then Exit Function
+    If IsError(v) Then IsTextCell = True: Exit Function
+    If VarType(v) = vbString Then IsTextCell = (Len(Trim$(CStr(v))) > 0)
+End Function
+
+Private Function NumOrEmpty(ByVal c As Range) As Variant
+    If IsNum(c.Value) Then NumOrEmpty = c.Value
+End Function
+
+'------------------------------------------------------------------
+' 舗装厚が入っている列。区間の行のうち、数値が現れた回数がいちばん
+' 多い列を採る。空欄の行があっても列を見失わないようにするため。
+'------------------------------------------------------------------
+Private Function ThickCol(ByVal ws As Worksheet, ByVal firstCol As Long) As Long
+    Dim r As Long, c As Long, lastRow As Long, best As Long
+    Dim hits() As Long, tr As Range
+
+    lastRow = LastUsedRow(ws)
+    ReDim hits(0 To firstCol)
+
+    For r = 1 To lastRow
+        If IsSectionRow(ws, r, firstCol) Then
+            For c = firstCol - 1 To 1 Step -1
+                Set tr = ws.Cells(r, c).MergeArea.Cells(1, 1)
+                If IsNum(tr.Value) Then
+                    If tr.Column <= firstCol Then hits(tr.Column) = hits(tr.Column) + 1
+                    Exit For
+                End If
+            Next c
+        End If
+    Next r
+
+    For c = 1 To firstCol
+        If hits(c) > best Then
+            best = hits(c)
+            ThickCol = c
+        End If
+    Next c
+End Function
+
+'------------------------------------------------------------------
+' 入れた式の一覧を残す。
+' このシートはゼロ値を表示しない設定なので、0 になったセルは
+' 画面上は空欄に見える。入ったかどうかはここで確かめる。
+'------------------------------------------------------------------
+Private Sub WriteReport(ByVal ws As Worksheet, ByRef recs() As TRec, ByVal n As Long)
+    Dim rp As Worksheet, i As Long, r As Long
+
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    ThisWorkbook.Worksheets(REPORT_SHEET).Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+
+    Set rp = ThisWorkbook.Worksheets.Add( _
+        After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
+    rp.Name = REPORT_SHEET
+
+    rp.Range("A1").Value = ws.Name & " の " & SECTION_LABEL & " に入れた式　" & _
+                           Format$(Now, "yyyy/mm/dd hh:nn")
+    rp.Range("A1").Font.Bold = True
+    rp.Range("A2").Value = "※ このシートは要らなければ消してかまいません"
+    rp.Range("A2").Font.Italic = True
+
+    r = 4
+    rp.Cells(r, 1).Value = "セル"
+    rp.Cells(r, 2).Value = "舗装厚"
+    rp.Cells(r, 3).Value = "種別"
+    rp.Cells(r, 4).Value = "転記元"
+    rp.Cells(r, 5).Value = "前の値"
+    rp.Cells(r, 6).Value = "後の値"
+    rp.Cells(r, 7).Value = "入れた式"
+    rp.Range(rp.Cells(r, 1), rp.Cells(r, 7)).Font.Bold = True
+    rp.Range(rp.Cells(r, 1), rp.Cells(r, 7)).Interior.Color = RGB(226, 239, 218)
+
+    For i = 0 To n - 1
+        r = r + 1
+        rp.Cells(r, 1).Value = recs(i).Addr_
+        rp.Cells(r, 2).Value = recs(i).Thick
+        rp.Cells(r, 3).Value = recs(i).Kind
+        rp.Cells(r, 4).Value = recs(i).Src
+        If Not IsEmpty(recs(i).OldV) Then rp.Cells(r, 5).Value = recs(i).OldV
+        rp.Cells(r, 6).Value = ws.Range(recs(i).Addr_).Value
+        rp.Cells(r, 7).Value = "'" & recs(i).Expr
+        ' 値が変わったところに色を付ける
+        If Differs(recs(i).OldV, ws.Range(recs(i).Addr_).Value) Then
+            rp.Range(rp.Cells(r, 1), rp.Cells(r, 7)).Interior.Color = RGB(255, 235, 156)
+        End If
+    Next i
+
+    rp.Columns.AutoFit
+    If rp.Columns(7).ColumnWidth > 70 Then rp.Columns(7).ColumnWidth = 70
+    On Error Resume Next
+    rp.Activate
+    rp.Rows(5).Select
+    ActiveWindow.FreezePanes = True
+    rp.Range("A1").Select
+    On Error GoTo 0
+End Sub
+
+Private Function Differs(ByVal a As Variant, ByVal b As Variant) As Boolean
+    Dim x As Double, y As Double
+    If IsNum(a) Then x = CDbl(a)
+    If IsNum(b) Then y = CDbl(b)
+    Differs = (Abs(x - y) > 0.0000001)
 End Function
 
 '------------------------------------------------------------------
@@ -413,18 +563,6 @@ Private Function CountSectionRows(ByVal ws As Worksheet, ByVal firstCol As Long)
 End Function
 
 ' 舗装厚が入っているセルへの参照。列は固定、行は相対（$I14 の形）
-Private Function ThickRef(ByVal ws As Worksheet, ByVal r As Long, _
-                          ByVal firstCol As Long) As String
-    Dim c As Long, cel As Range
-    For c = firstCol - 1 To 1 Step -1
-        Set cel = ws.Cells(r, c).MergeArea.Cells(1, 1)
-        If IsNum(cel.Value) Then
-            ThickRef = "$" & ColLetter(cel.Column) & cel.Row
-            Exit Function
-        End If
-    Next c
-End Function
-
 ' 数値が入っているか。「計」などの文字や空欄を弾く
 ' （IsNumeric は Empty に対して True を返すので、そのままでは使えない）
 Private Function IsNum(ByVal v As Variant) As Boolean
@@ -461,15 +599,20 @@ End Function
 Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
                           ByRef srcs() As String, ByVal nCol As Long, _
                           ByVal firstCol As Long) As String
-    Dim r As Long, i As Long, lastRow As Long
+    Dim r As Long, i As Long, lastRow As Long, thkCol As Long
     Dim nSect As Long, nThk As Long, nKind As Long, nYellow As Long, nBlock As Long
     Dim r0 As Long, r1 As Long, a1 As Long, a2 As Long, c1 As Long, c2 As Long
 
     lastRow = LastUsedRow(ws)
+    thkCol = ThickCol(ws, firstCol)
     For r = 1 To lastRow
         If IsSectionRow(ws, r, firstCol) Then
             nSect = nSect + 1
-            If Len(ThickRef(ws, r, firstCol)) > 0 Then nThk = nThk + 1
+            If thkCol > 0 Then
+                If Not IsTextCell(ws.Cells(r, thkCol).MergeArea.Cells(1, 1)) Then
+                    nThk = nThk + 1
+                End If
+            End If
             If Len(KindOfRow(ws, r, firstCol)) > 0 Then nKind = nKind + 1
             For i = 0 To nCol - 1
                 If IsInputCell(ws.Cells(r, ColNum(cols(i)))) Then nYellow = nYellow + 1
@@ -483,7 +626,7 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
     Diagnose = _
         "調べたところ" & vbCrLf & _
         "　" & SECTION_LABEL & " の行 … " & nSect & " 行" & vbCrLf & _
-        "　うち舗装厚が読めた行 … " & nThk & " 行" & vbCrLf & _
+        "　うち舗装厚の欄が使える行 … " & nThk & " 行" & "（厚さ列 " & IIf(thkCol > 0, ColLetter(thkCol), "?") & "）" & vbCrLf & _
         "　うち種別(As/Co)が読めた行 … " & nKind & " 行" & vbCrLf & _
         "　黄色い入力セル … " & nYellow & " 個" & vbCrLf & _
         "　ブロックが見つかった転記元 … " & nBlock & " / " & nCol & " シート" & vbCrLf & vbCrLf & _

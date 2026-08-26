@@ -171,12 +171,25 @@ def is_section_row(ws, r, first_col):
     return False
 
 
-def thick_ref(ws, r, first_col):
-    for c in range(first_col - 1, 0, -1):
-        tr, tc = merged_top(ws, r, c)
-        if is_num(ws.cell(tr, tc).value):
-            return f"${gl(tc)}{tr}"
-    return ""
+def thick_col(ws, rows, first_col):
+    """舗装厚の列。区間の行で数値が現れた回数がいちばん多い列（VBA の ThickCol）"""
+    hits = collections.Counter()
+    for r in rows:
+        for c in range(first_col - 1, 0, -1):
+            tr, tc = merged_top(ws, r, c)
+            if is_num(ws.cell(tr, tc).value):
+                hits[tc] += 1
+                break
+    return hits.most_common(1)[0][0] if hits else 0
+
+
+def is_text_cell(ws, r, c):
+    """「計」などの文字が入っているか。空欄と数値は False"""
+    tr, tc = merged_top(ws, r, c)
+    v = ws.cell(tr, tc).value
+    if v is None:
+        return False
+    return isinstance(v, str) and bool(v.strip())
 
 
 def kind_of_row(ws, r, first_col):
@@ -218,11 +231,17 @@ def main():
     print(f"\n{SECTION_LABEL} の行: {len(rows)} 行 "
           f"({rows[0]}〜{rows[-1]})" if rows else "対象行なし")
 
+    tc = thick_col(ws, rows, first_col)
+    print(f"舗装厚の列: {gl(tc)} 列")
+
     written, skipped, notes = {}, [], []
     for r in rows:
-        tr = thick_ref(ws, r, first_col)
+        if is_text_cell(ws, r, tc):
+            continue                      # 「計」の行は触らない
+        mr, mc = merged_top(ws, r, tc)
+        tr = f"${gl(mc)}{mr}"
         kd = kind_of_row(ws, r, first_col)
-        if not tr or not kd:
+        if not kd:
             continue
         for cl, sn in pairs:
             if not is_input_cell(ws, r, ci(cl)):
@@ -240,8 +259,9 @@ def main():
     for (r, cl) in written:
         by_row[r].append(cl)
     for r in sorted(by_row):
-        thk = thick_ref(ws, r, first_col)
-        print(f"  {r:3}行 厚さ{thk:<6} {kind_of_row(ws, r, first_col):<5} "
+        mr, mc = merged_top(ws, r, tc)
+        thk = ws.cell(mr, mc).value
+        print(f"  {r:3}行 厚さ{str(thk):<6} {kind_of_row(ws, r, first_col):<5} "
               f"→ {','.join(sorted(by_row[r], key=ci))}")
 
     print("\n=== 13〜25行 J〜N の数式 ===")
