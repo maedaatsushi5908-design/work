@@ -12,7 +12,7 @@ excel/vba/src/          保守用。ここを直す
   M_Main.bas              01 用。照合・転記の入口
 
 excel/vba/dist/         貼り付け用。src から生成する
-  M_Hasai.bas             06 に貼る1ファイル（592行）
+  M_Hasai.bas             06 に貼る1ファイル（594行）
   M_Tenki.bas             01 に貼る1ファイル（1079行）
   sjis/                   同じものの Shift-JIS 版（インポート用）
 ```
@@ -148,7 +148,13 @@ Private Const COL_MAP As String = _
 
 - `excel/docs/verify_hasai.py` … **マクロと同じ判定を Python に写したもの**
   91セル分の数式を出し、J14 が指示どおりの文字列かを確かめる
-- `excel/docs/lint_vba.py` … 予約語・宣言位置・構文の機械チェック
+- `excel/docs/lint_vba.py` … 名前と構文の機械チェック
+  - 予約語を変数名に使っていないか（`Dim any As Boolean` は構文エラー）
+  - **手続き名と同じ名前の変数**（`Function LastRow()` と `Dim lastRow` は
+    VBA が大文字小文字を区別しないため衝突する）
+  - VBA / Excel の関数と同じ名前の変数（`Dim Val As String` など）
+  - モジュールレベルの宣言が手続きより後ろに来ていないか
+  - Sub / Function と End の対応、コード行の全角スペース
 
 ```
 python3 excel/docs/verify_hasai.py

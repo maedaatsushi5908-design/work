@@ -172,7 +172,7 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
     Dim cel As Range
 
     why = ""
-    lastRow = LastRow(ws)
+    lastRow = LastUsedRow(ws)
 
     For r = 1 To lastRow
         If IsSectionRow(ws, r, firstCol) Then
@@ -405,7 +405,7 @@ End Function
 
 Private Function CountSectionRows(ByVal ws As Worksheet, ByVal firstCol As Long) As Long
     Dim r As Long, n As Long, lastRow As Long
-    lastRow = LastRow(ws)
+    lastRow = LastUsedRow(ws)
     For r = 1 To lastRow
         If IsSectionRow(ws, r, firstCol) Then n = n + 1
     Next r
@@ -465,7 +465,7 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
     Dim nSect As Long, nThk As Long, nKind As Long, nYellow As Long, nBlock As Long
     Dim r0 As Long, r1 As Long, a1 As Long, a2 As Long, c1 As Long, c2 As Long
 
-    lastRow = LastRow(ws)
+    lastRow = LastUsedRow(ws)
     For r = 1 To lastRow
         If IsSectionRow(ws, r, firstCol) Then
             nSect = nSect + 1
@@ -530,10 +530,12 @@ Private Function FindSheet(ByVal nm As String) As Worksheet
     Next sh
 End Function
 
-Private Function LastRow(ByVal ws As Worksheet) As Long
-    LastRow = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
-    If LastRow > 500 Then LastRow = 500
-    If LastRow < 1 Then LastRow = 1
+' 使われている最後の行。変数名 lastRow と同じ名前にすると
+' VBA は大文字小文字を区別しないため衝突するので、別の名前にしている。
+Private Function LastUsedRow(ByVal ws As Worksheet) As Long
+    LastUsedRow = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    If LastUsedRow > 500 Then LastUsedRow = 500
+    If LastUsedRow < 1 Then LastUsedRow = 1
 End Function
 
 Private Function MergedValue(ByVal ws As Worksheet, ByVal r As Long, ByVal c As Long) As Variant
