@@ -7,7 +7,7 @@
     python3 excel/docs/build_vba.py
 
 出力:
-    excel/vba/dist/M_Link.bas       06 土工事・舗装復旧 用
+    excel/vba/dist/M_Hasai.bas      06 土工事・舗装復旧 用
     excel/vba/dist/M_Tenki.bas      01 総括表 用
     excel/vba/dist/sjis/*.bas       同じものの Shift-JIS 版（インポート用）
 """
@@ -22,13 +22,14 @@ DIST = os.path.join(ROOT, "vba", "dist")
 
 BUNDLES = [
     {
-        "name": "M_Link",
-        "parts": ["M_Util.bas", "M_Link.bas"],
+        "name": "M_Hasai",
+        # 単独で動くので M_Util は混ぜない。読む量を減らすため。
+        "parts": ["M_Hasai.bas"],
         "header": [
             "' 06 土工事・舗装復旧 数量計算書 用",
             "'",
             "' このファイル1つだけを標準モジュールに貼り付ければ動く。",
-            "' マクロは「総括表の数式を作り直す」1本。",
+            "' マクロは「舗装版破砕を転記する」1本。",
         ],
     },
     {
