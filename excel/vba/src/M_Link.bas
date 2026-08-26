@@ -350,9 +350,17 @@ NextCell:
         cfg.Cells(r, 10).Value = "'" & gg(2)
         cfg.Cells(r, 11).Value = SumOfCols(ws, gr, CStr(gg(0)))
 
-        If gg(3) = "OK" Then
+        ' 条件式は舗装厚で照合するので、参照セルを行どうしで
+        ' 分け合っていても（NG_SHARE）そのまま広げられる。
+        Dim canExp As Boolean
+        canExp = (gg(3) = "OK") Or (gg(3) = "NG_SHARE" And way = "条件式")
+
+        If canExp Then
             cfg.Cells(r, 3).Value = "○"
             cfg.Cells(r, 12).Value = "展開可"
+            If gg(3) = "NG_SHARE" Then
+                cfg.Cells(r, 13).Value = "条件式なので、黄色い入力セルに広げます"
+            End If
             nExp = nExp + 1
         ElseIf gg(3) = "NG_SIG" Then
             cfg.Cells(r, 3).Value = ""
@@ -468,11 +476,15 @@ NextDia:
         Dim expand As Boolean: expand = (Len(Norm(cfg.Cells(r, 3).Value)) > 0)
         If tRow = 0 Or Len(tmpl) = 0 Then GoTo NextRow
 
+        Dim had As String: had = Trim$(CStr(cfg.Cells(r, 9).Value))
         Dim targets As String
         If expand And colsOfKei.Exists(kei) Then
-            targets = colsOfKei(kei)
+            ' 広げる先は黄色い入力セルだけ。舗装版破砕は口径ごとに
+            ' 別のブロックへ分かれる行があり、系統の全列に広げると
+            ' 別の口径の欄へはみ出すため。
+            targets = YellowOnly(ws, tRow, colsOfKei(kei), had)
         Else
-            targets = Trim$(CStr(cfg.Cells(r, 9).Value))
+            targets = had
         End If
 
         Dim tc As Variant, note As String
@@ -584,12 +596,18 @@ Private Sub FillYellow(ByVal cfg As Worksheet, ByVal ws As Worksheet, _
 
         colL = Split(c.Address(True, False), "$")(0)
 
+        ' 厚さ列と種別列は照合の材料であって転記先ではない。
+        ' ここに数式を入れると循環参照になり、厚さの値も消える。
+        If colL = thkColW Or colL = kndColW Then GoTo NextCell
+
+        ' 見出しに系統名の無い列（合計欄や余白）も転記先ではない
+        kei = KeiOf(ws, c.Column)
+        If Len(kei) = 0 Then GoTo NextCell
+
         Dim thk As Variant: thk = ws.Cells(c.Row, ColToNum(thkColW)).Value
         If Not IsNumeric(thk) Then GoTo NextCell
         Dim kind As String: kind = KindOf(ws, c.Row, ColToNum(kndColW))
         If Len(kind) = 0 Then GoTo NextCell
-
-        kei = KeiOf(ws, c.Column)
 
         ' 転記元シートの決め方は2通り。
         '   口径のある系統 … 近くの同系統リンクから接頭辞を借り、口径を足す
@@ -646,6 +664,24 @@ Private Function IsYellow(ByVal c As Range) As Boolean
     If c.Interior.Pattern = xlNone Then Exit Function
     IsYellow = (c.Interior.Color = RGB(255, 255, 0))
     On Error GoTo 0
+End Function
+
+' 数式を入れるのは、作成者が黄色く塗った入力セルだけ。
+' もともとリンクのあった列は、塗り忘れていても残す。
+Private Function YellowOnly(ByVal ws As Worksheet, ByVal r As Long, _
+                            ByVal targets As String, ByVal had As String) As String
+    Dim tc As Variant, colL As String, out As String, hadList As String
+    hadList = "," & Replace(Replace(had, " ", ""), "　", "") & ","
+    For Each tc In Split(targets, ",")
+        colL = Trim$(CStr(tc))
+        If Len(colL) > 0 Then
+            If IsYellow(ws.Cells(r, ColToNum(colL))) _
+               Or InStr(1, hadList, "," & colL & ",") > 0 Then
+                out = IIf(Len(out) = 0, colL, out & "," & colL)
+            End If
+        End If
+    Next tc
+    YellowOnly = out
 End Function
 
 ' 同じ系統で、行がいちばん近いリンクの接頭辞を返す

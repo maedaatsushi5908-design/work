@@ -8,8 +8,10 @@
   2. Sub / Function と End Sub / End Function の対応
   3. 全角スペースがコード行に混ざっていないか
 
-    python3 excel/docs/lint_vba.py excel/vba/*.bas
+    python3 excel/docs/lint_vba.py            # src と dist をまとめて
+    python3 excel/docs/lint_vba.py excel/vba/src/M_Link.bas
 """
+import glob
 import re
 import sys
 
@@ -129,4 +131,5 @@ def main(paths):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:] or ["excel/vba/M_Util.bas"]))
+    sys.exit(main(sys.argv[1:] or sorted(
+        glob.glob("excel/vba/src/*.bas") + glob.glob("excel/vba/dist/*.bas"))))
