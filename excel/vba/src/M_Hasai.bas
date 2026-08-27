@@ -27,9 +27,21 @@ Option Explicit
 ' 総括表のシート名
 Private Const TARGET_SHEET As String = "総括表（土工事）"
 
+' 転記元シートが別のブックにあるときの、そのブックのファイル名。
+' 空にしておくと、開いているブックの中から自動で探す。
+' 見つけたブック名は実行前の確認画面に出る。
+Private Const SOURCE_BOOK As String = ""
+
 ' 総括表の列 → 転記元シート名。区切りは縦棒。
 ' 使わない列は書かなくてよい。
 ' 「給水2度」は舗装版破砕のブロックが無いので入れていない。
+'
+' 工事が変わったらここを差し替える。下書きは次で作れる。
+'     python3 excel/docs/scan_work.py excel/works/<工事のフォルダ>
+'
+' シート名の数字は口径ではなく様式の枠の名前。延長表のどの区分を
+' 読んでいるかで決まる。1枠目(50)＝新設部、3枠目(75)＝一般部・撤去部。
+' 「(75-300)新設」が 管工（舗50 になるのはそのため。
 Private Const COL_MAP As String = _
     "J=試掘（舗50|" & _
     "K=試掘（舗300|" & _
@@ -39,9 +51,16 @@ Private Const COL_MAP As String = _
     "P=仮配（舗|" & _
     "Q=給水(舗|" & _
     "R=管工（舗50|" & _
-    "S=管工（舗75|" & _
-    "T=管工（舗400|" & _
-    "U=管工（舗600"
+    "S=管工（舗200|" & _
+    "T=管工（舗75|" & _
+    "U=管工（舗400|" & _
+    "V=管工（舗600"
+
+' 東白川特２高層配水池（管工事が4列、総括表が 06 のブックの中にある工事）
+' はこちら。上の COL_MAP と入れ替えて使う。
+'    "J=試掘（舗50|K=試掘（舗300|L=試掘（舗75|M=試掘（舗400|N=試掘（舗600|"
+'    "P=仮配（舗|Q=給水(舗|"
+'    "R=管工（舗50|S=管工（舗75|T=管工（舗400|U=管工（舗600"
 
 ' 総括表で、いちばん左の工種名がこの言葉を含む行だけを対象にする
 Private Const SECTION_LABEL As String = "舗装版破砕"
@@ -73,6 +92,9 @@ End Type
 ' 転記元シートのブロック位置。同じシートを何度も探さないよう覚えておく
 Private mBlock As Object
 
+' 転記元のブック。総括表と同じブックのこともあれば、別ブックのこともある
+Private mSrc As Workbook
+
 '==================================================================
 ' 唯一の入口
 '==================================================================
@@ -101,6 +123,11 @@ Public Sub 舗装版破砕を転記する()
         Exit Sub
     End If
 
+    If Not ResolveSource(srcs, nCol, why) Then
+        MsgBox why, vbExclamation, "舗装版破砕の転記"
+        Exit Sub
+    End If
+
     firstCol = FirstMapCol(cols, nCol)
     nRow = CountSectionRows(ws, firstCol)
     thkCol = ThickCol(ws, firstCol)
@@ -111,7 +138,9 @@ Public Sub 舗装版破砕を転記する()
     End If
 
     ' --- 何をするかを見せて確認 --------------------------------------
-    msg = "対象シート: " & ws.Name & vbCrLf & _
+    msg = "対象シート: " & ws.Name & "（" & ThisWorkbook.Name & "）" & vbCrLf & _
+          "転記元ブック: " & mSrc.Name & _
+          IIf(mSrc Is ThisWorkbook, "（同じブック）", "（別のブック）") & vbCrLf & _
           SECTION_LABEL & " の行: " & nRow & " 行" & vbCrLf & _
           "舗装厚の列: " & ColLetter(thkCol) & " 列" & vbCrLf & vbCrLf & _
           "転記元の対応" & vbCrLf & _
@@ -380,7 +409,7 @@ End Function
 Private Function SumifTerm(ByVal sn As String, ByVal thkCol As Long, ByVal sumCol As Long, _
                            ByVal r0 As Long, ByVal r1 As Long, ByVal crit As String) As String
     Dim q As String
-    q = "'" & sn & "'!"
+    q = Qual(sn)
     SumifTerm = "SUMIF(" & q & Rng(thkCol, r0, r1) & "," & crit & "," & q & Rng(sumCol, r0, r1) & ")"
 End Function
 
@@ -423,7 +452,7 @@ Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lon
     End If
     mBlock(sn) = ""
 
-    Set ws = FindSheet(sn)
+    Set ws = FindSheetIn(mSrc, sn)
     If ws Is Nothing Then Exit Function
 
     ' ブロックの見出しを探す
@@ -503,7 +532,7 @@ Private Function BlockNote(ByVal sn As String) As String
     Dim r0 As Long, r1 As Long
     Dim asThk As Long, asSum As Long, coThk As Long, coSum As Long
 
-    If FindSheet(sn) Is Nothing Then
+    If FindSheetIn(mSrc, sn) Is Nothing Then
         BlockNote = "★シートがありません"
         Exit Function
     End If
@@ -650,13 +679,97 @@ Private Function FirstMapCol(ByRef cols() As String, ByVal n As Long) As Long
 End Function
 
 Private Function FindSheet(ByVal nm As String) As Worksheet
+    Set FindSheet = FindSheetIn(ThisWorkbook, nm)
+End Function
+
+Private Function FindSheetIn(ByVal wb As Workbook, ByVal nm As String) As Worksheet
     Dim sh As Worksheet
-    For Each sh In ThisWorkbook.Worksheets
+    If wb Is Nothing Then Exit Function
+    For Each sh In wb.Worksheets
         If Norm(sh.Name) = Norm(nm) Then
-            Set FindSheet = sh
+            Set FindSheetIn = sh
             Exit Function
         End If
     Next sh
+End Function
+
+'------------------------------------------------------------------
+' 転記元のブックを決める
+'
+' 総括表と転記元が同じブックのこともあれば（1件目の工事）、
+' 総括表だけ 01 総括表.xlsx に分かれていることもある（2件目の工事）。
+' COL_MAP の1枚目のシートがどこにあるかで見分ける。
+'------------------------------------------------------------------
+Private Function ResolveSource(ByRef srcs() As String, ByVal nCol As Long, _
+                               ByRef why As String) As Boolean
+    Dim wb As Workbook, hit As Workbook, n As Long, probe As String, i As Long
+
+    why = ""
+    Set mSrc = Nothing
+
+    ' 名前を書いてあるなら、それを開いているか確かめる
+    If Len(SOURCE_BOOK) > 0 Then
+        For Each wb In Application.Workbooks
+            If Norm(wb.Name) = Norm(SOURCE_BOOK) Then Set mSrc = wb: Exit For
+        Next wb
+        If mSrc Is Nothing Then
+            why = "転記元のブック「" & SOURCE_BOOK & "」が開いていません。" & vbCrLf & _
+                  "先に開いてから、もう一度実行してください。"
+            Exit Function
+        End If
+        ResolveSource = True
+        Exit Function
+    End If
+
+    ' 空欄なら、COL_MAP のシートを持つブックを探す
+    For i = 0 To nCol - 1
+        If Len(srcs(i)) > 0 Then probe = srcs(i): Exit For
+    Next i
+    If Len(probe) = 0 Then
+        why = "COL_MAP が空です。"
+        Exit Function
+    End If
+
+    If Not FindSheetIn(ThisWorkbook, probe) Is Nothing Then
+        Set mSrc = ThisWorkbook              ' 同じブックの中にある
+        ResolveSource = True
+        Exit Function
+    End If
+
+    For Each wb In Application.Workbooks
+        If Not FindSheetIn(wb, probe) Is Nothing Then
+            Set hit = wb
+            n = n + 1
+        End If
+    Next wb
+
+    If n = 0 Then
+        why = "転記元のシート「" & probe & "」が、開いているどのブックにもありません。" & vbCrLf & vbCrLf & _
+              "転記元のブック（試掘や管工のシートが入っているもの）を" & vbCrLf & _
+              "開いてから、もう一度実行してください。"
+        Exit Function
+    ElseIf n > 1 Then
+        why = "「" & probe & "」というシートを持つブックが " & n & " つ開いています。" & vbCrLf & _
+              "どれを使うか決められません。余分なほうを閉じるか、" & vbCrLf & _
+              "マクロ先頭の SOURCE_BOOK にファイル名を書いてください。"
+        Exit Function
+    End If
+
+    Set mSrc = hit
+    ResolveSource = True
+End Function
+
+' 数式に書くシートの頭。別ブックなら [ファイル名] を付ける
+'   同じブック : '試掘（舗50'!
+'   別のブック : '[06 土工事・舗装復旧.xlsx]試掘（舗50'!
+Private Function Qual(ByVal sn As String) As String
+    If mSrc Is Nothing Then
+        Qual = "'" & sn & "'!"
+    ElseIf mSrc Is ThisWorkbook Then
+        Qual = "'" & sn & "'!"
+    Else
+        Qual = "'[" & mSrc.Name & "]" & sn & "'!"
+    End If
 End Function
 
 ' 使われている最後の行。変数名 lastRow と同じ名前にすると

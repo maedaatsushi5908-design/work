@@ -3,7 +3,7 @@
 ```
 excel/works/
   01_higashishirakawa/   東白川特２高層配水池揚水管取替工事（令和7年度）
-  02/                    2件目。給水・仮配のある工事
+  02_nagata/             長田(花山町2丁目他)配水管取替工事
 ```
 
 各フォルダの `files.md` に、元のファイル名との対応と工事の概要を書く。
@@ -34,7 +34,7 @@ GitHub のアップローダーは、**全角スペース・拡張子前のス�
 ### 2. アップロードする
 
 <https://github.com/maedaatsushi5908-design/work> で
-`excel/works/02` を開き、右上の **Add file → Upload files** にドラッグ＆ドロップ。
+`excel/works/02_nagata` を開き、右上の **Add file → Upload files** にドラッグ＆ドロップ。
 下の **Commit changes** を押す。
 
 - `Uploads are disabled` と出るときは、GitHub に
@@ -47,7 +47,7 @@ GitHub のアップローダーは、**全角スペース・拡張子前のス�
 ### 3. 読み取る
 
 ```
-python3 excel/docs/scan_work.py excel/works/02
+python3 excel/docs/scan_work.py excel/works/02_nagata
 ```
 
 総括表の見出し・シート名・舗装版破砕ブロックを突き合わせ、

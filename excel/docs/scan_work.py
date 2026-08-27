@@ -69,47 +69,94 @@ def find_target(wb):
     return hits
 
 
+def load_all(folder):
+    """フォルダ内の xlsx/xlsm を全部開く"""
+    out = []
+    for f in sorted(os.listdir(folder)):
+        if not f.lower().endswith((".xlsx", ".xlsm")) or f.startswith("~"):
+            continue
+        try:
+            out.append((f, openpyxl.load_workbook(os.path.join(folder, f))))
+        except Exception as e:                                  # noqa: BLE001
+            print(f"--- {f}  読めません: {e}")
+    return out
+
+
+def assign(cands, order, sheets_of_kei, kei_of_col):
+    """列 → 転記元シートを決める
+
+    同じ系統の列数と転記元シート数が同じなら、並び順どおりに組む。
+    様式では 1枠目=新設 / 3枠目=取替・撤去 のように枠の意味が決まっていて、
+    シート名の数字（管工（舗50 の 50）は口径ではなく枠の名前だから。
+    数が合わないときは、候補の少ない列から順に決めて使った分を外す。
+    """
+    chosen, how = {}, {}
+    done = set()
+    for kei, sheets in sheets_of_kei.items():
+        cls = [c for c in order if kei_of_col.get(c) == kei and cands.get(c)]
+        if len(cls) >= 2 and len(cls) == len(sheets):
+            for cl, sn in zip(cls, sheets):
+                chosen[cl] = sn
+                how[cl] = "並び順"
+                done.add(cl)
+
+    used = set(chosen.values())
+    todo = {c: list(v) for c, v in cands.items() if v and c not in done}
+    while todo:
+        best = min(todo, key=lambda c: (len([x for x in todo[c] if x not in used]),
+                                        order.index(c)))
+        left = [x for x in todo[best] if x not in used]
+        del todo[best]
+        if not left:
+            continue
+        chosen[best] = left[0]
+        how[best] = "見出しの口径" if len(left) == 1 else "★候補が複数"
+        used.add(left[0])
+    return chosen, how
+
+
 def scan(folder):
-    names = os.listdir(folder)
-    books = sorted(f for f in names
-                   if f.lower().endswith((".xlsx", ".xlsm")) and not f.startswith("~"))
-    xls = sorted(f for f in names if f.lower().endswith(".xls"))
+    xls = sorted(f for f in os.listdir(folder) if f.lower().endswith(".xls"))
     if xls:
         print(f"※ .xls（97-2003 形式）は飛ばします: {', '.join(xls)}\n")
 
-    found = False
-    for bk in books:
-        try:
-            wb = openpyxl.load_workbook(os.path.join(folder, bk))
-        except Exception as e:                                  # noqa: BLE001
-            print(f"--- {bk}  読めません: {e}\n")
-            continue
+    books = load_all(folder)
 
-        targets = find_target(wb)
-        if not targets:
-            continue
-        found = True
-
-        print("=" * 74)
-        print(f"■ {bk}　（シート {len(wb.sheetnames)} 枚）")
-
+    # --- 転記元（舗装版破砕のブロックを持つシート）をブック横断で集める ---
+    srcs = []                      # (ファイル名, シート名, ブロック)
+    for fn, wb in books:
         H._cache.clear()
-        srcs = [(sn, H.find_block(wb, sn)) for sn in wb.sheetnames]
-        srcs = [(sn, b) for sn, b in srcs if b]
-        block_of_all = {sn for sn, _ in srcs}
-        print(f"\n  舗装版破砕のブロックを持つシート {len(srcs)} 枚")
-        for sn, b in srcs:
-            r0, r1, at, a_s, ct, cs = b
-            co = f"Co={gl(ct)}/{gl(cs)}" if cs else "Co なし"
-            print(f"    {sn:<16} {r0:>3}-{r1:<3}行  As={gl(at)}/{gl(a_s):<3} {co}")
+        for sn in wb.sheetnames:
+            b = H.find_block(wb, sn)
+            if b:
+                srcs.append((fn, sn, b))
+    if not srcs:
+        print("舗装版破砕のブロックを持つシートが見つかりませんでした。")
+        return
 
-        for tsn, trow in targets:
-            # 自分が転記元のシートは総括表ではない
-            if tsn in block_of_all:
-                continue
+    print("=" * 74)
+    print(f"■ 転記元シート {len(srcs)} 枚")
+    cur = None
+    for fn, sn, b in srcs:
+        if fn != cur:
+            print(f"  {fn}")
+            cur = fn
+        r0, r1, at, a_s, ct, cs = b
+        co = f"Co={gl(ct)}/{gl(cs)}" if cs else "Co なし"
+        print(f"    {sn:<16} {r0:>3}-{r1:<3}行  As={gl(at)}/{gl(a_s):<3} {co}")
+
+    block_names = {sn for _f, sn, _b in srcs}
+    src_files = sorted({fn for fn, _s, _b in srcs})
+    # 全ブックのシート名。「給水2度」のように総括表とは別のブックに
+    # 同名シートがあることがあるので、横断で見る
+    all_sheets = {sn for _f, w in books for sn in w.sheetnames}
+
+    # --- 総括表を探して突き合わせる ---
+    for fn, wb in books:
+        for tsn, trow in find_target(wb):
+            if tsn in block_names:
+                continue                       # 転記元シート自身
             ws = wb[tsn]
-            head = f"\n  ▼ 総括表候補「{tsn}」　{H.SECTION_LABEL} は {trow} 行目から"
-
             fc = 0
             for c in range(1, 40):
                 if kei_of(ws, c):
@@ -118,8 +165,7 @@ def scan(folder):
             if not fc:
                 continue
 
-            block_of = dict(srcs)
-            cands, info = {}, {}
+            cands, info, order, kei_of_col = {}, {}, [], {}
             for c in range(fc, min(ws.max_column, 60) + 1):
                 k = kei_of(ws, c)
                 if not k:
@@ -129,78 +175,75 @@ def scan(folder):
                 if yellow == 0:
                     continue
                 cl = gl(c)
+                order.append(cl)
+                kei_of_col[cl] = k
                 info[cl] = (header_of(ws, c), k, yellow)
 
-                # 1. 名前がそのまま一致するシート（給水2度 → 給水2度）
-                exact = [sn for sn in wb.sheetnames if H.norm(sn) == H.norm(k)]
+                exact = [sn for _f, sn, _b in srcs if H.norm(sn) == H.norm(k)]
                 if exact:
-                    cands[cl] = exact if exact[0] in block_of else []
+                    cands[cl] = [exact[0]]
                     continue
-                # 2. 括弧より前が一致し、口径が見出しの数字に含まれるシート
+                if any(H.norm(sn) == H.norm(k) for sn in all_sheets):
+                    cands[cl] = []              # 同名だがブロックが無い＝対象外
+                    continue
                 nums = re.findall(r"\d+", header_of(ws, c))
                 lst = []
-                for sn, _b in srcs:
+                for _f, sn, _b in srcs:
                     if H.norm(k).startswith(lead(sn)):
                         tail = re.search(r"(\d+)$", sn)
                         if tail is None or tail.group(1) in nums:
                             lst.append(sn)
                 cands[cl] = lst
 
-            # 候補が少ない列から順に決め、使ったシートは他の列から外す。
-            # 見出しの「PE50-300」だけでは絞れなくても、他の列が先に
-            # 決まることで1つに残ることが多い。
-            chosen, used = {}, set()
-            todo = {c: list(v) for c, v in cands.items() if v}
-            while todo:
-                best = min(todo, key=lambda c: (len([x for x in todo[c] if x not in used]),
-                                                list(cands).index(c)))
-                left = [x for x in todo[best] if x not in used]
-                if not left:
-                    del todo[best]
-                    continue
-                chosen[best] = (left[0], len(left) == 1)
-                used.add(left[0])
-                del todo[best]
-
             if len([c for c in cands if cands[c]]) < 2:
-                continue                       # 数量欄の無いシートは飛ばす
-            print(head)
-            print(f"    {'列':<3} {'見出し':<32} {'系統':<9} {'黄':>3}  候補シート")
-            print("    " + "-" * 78)
+                continue
 
+            # 系統ごとの転記元シート（ブックの並び順のまま）
+            sheets_of_kei = {}
+            for cl in order:
+                k = kei_of_col[cl]
+                if k in sheets_of_kei:
+                    continue
+                lst = [sn for _f, sn, _b in srcs if H.norm(k).startswith(lead(sn))
+                       and H.norm(sn) != H.norm(k)]
+                if lst:
+                    sheets_of_kei[k] = lst
+            chosen, how = assign(cands, order, sheets_of_kei, kei_of_col)
+
+            print("\n" + "=" * 74)
+            print(f"▼ 総括表「{tsn}」　{fn}　{H.SECTION_LABEL} は {trow} 行目から")
+            print(f"  {'列':<3} {'見出し':<32} {'系統':<9} {'黄':>3}  転記元         決め方")
+            print("  " + "-" * 84)
             proposal, unsure = [], []
-            for cl in cands:
+            for cl in order:
                 hdr, k, yellow = info[cl]
                 if cl in chosen:
-                    sn, sure = chosen[cl]
-                    mark = "" if sure else "  ★候補が複数（他の列から決めました）"
-                    if not sure:
-                        unsure.append(cl)
+                    sn = chosen[cl]
                     proposal.append((cl, sn))
-                    shown = sn + (f"（候補 {' / '.join(cands[cl])}）" if not sure else "")
-                elif cands.get(cl) == [] and any(H.norm(sn) == H.norm(k)
-                                                for sn in wb.sheetnames):
-                    shown, mark = "同名シートに破砕ブロックが無い → 対象外", ""
+                    note = how[cl]
+                    if note.startswith("★"):
+                        unsure.append(cl)
+                elif cands.get(cl) == []:
+                    sn, note = "—", "同名シートに破砕のブロックが無い → 対象外"
                 else:
-                    shown, mark = "(候補なし)", "  ★要確認"
+                    sn, note = "—", "★候補なし"
                     unsure.append(cl)
-                print(f"    {cl:<3} {hdr[:32]:<32} {k:<9} {yellow:>3}  {shown}{mark}")
+                print(f"  {cl:<3} {hdr[:32]:<32} {k:<9} {yellow:>3}  {sn:<14} {note}")
 
             if proposal:
-                print("\n    --- マクロ先頭に貼る下書き ---")
-                print(f'    Private Const TARGET_SHEET As String = "{tsn}"')
-                print('    Private Const COL_MAP As String = _')
+                print("\n  --- マクロ先頭に貼る下書き ---")
+                print(f'  Private Const TARGET_SHEET As String = "{tsn}"')
+                other = [f for f in src_files if f != fn]
+                if other:
+                    print(f'  \' 転記元は別のブック: {", ".join(other)}')
+                print('  Private Const COL_MAP As String = _')
                 for i, (cl, sn) in enumerate(proposal):
                     last = (i == len(proposal) - 1)
-                    print(f'        "{cl}={sn}{"" if last else "|"}"{"" if last else " & _"}')
+                    print(f'      "{cl}={sn}{"" if last else "|"}"{"" if last else " & _"}')
                 if unsure:
-                    print(f"\n    ★ {', '.join(unsure)} 列は自動で決め切れていません。"
-                          "見出しとシート名を見比べて確かめてください。")
-        print()
-
-    if not found:
-        print("舗装版破砕の区間がある総括表は見つかりませんでした。")
-        print("シート名や工種名の書き方が違うかもしれません。")
+                    print(f"\n  ★ {', '.join(unsure)} 列は決め切れていません。"
+                          "見出しとシートを見比べて確かめてください。")
+    print()
 
 
 def main(argv):
