@@ -5,8 +5,7 @@
 「どのセルに何が入るか」を出す。VBA を直したらこちらも直すこと。
 
     python3 excel/docs/verify_hasai.py
-    WORK=02 BOOK=01_soukatsu.xlsx SRC_BOOK=06_dokou_hosou.xlsx \
-        python3 excel/docs/verify_hasai.py
+    WORK=02_nagata python3 excel/docs/verify_hasai.py
 """
 import collections
 import os
@@ -20,16 +19,14 @@ from openpyxl.utils import column_index_from_string as ci
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORK = os.environ.get("WORK", "01_higashishirakawa")
 FOLDER = os.path.join(HERE, "..", "works", WORK)
-# 総括表のあるブックと、転記元のあるブック。同じこともある
 BOOK = os.environ.get("BOOK", "06_dokou_hosou.xlsx")
-SRC_BOOK = os.environ.get("SRC_BOOK", BOOK)
 
 # ---- M_Hasai の先頭にある設定と同じもの -----------------------------------
 TARGET_SHEET = "総括表（土工事）"
 COL_MAP = os.environ.get("COL_MAP") or (
     "J=試掘（舗50|K=試掘（舗300|L=試掘（舗75|M=試掘（舗400|N=試掘（舗600|"
     "P=仮配（舗|Q=給水(舗|"
-    "R=管工（舗50|S=管工（舗200|T=管工（舗75|U=管工（舗400|V=管工（舗600")
+    "R=管工（舗50|S=管工（舗75|T=管工（舗400|U=管工（舗600")
 SECTION_LABEL = "舗装版破砕"
 BLOCK_LABEL = "□舗装版破砕"
 INPUT_COLOR = "FFFF00"
@@ -144,12 +141,6 @@ def rng(col, r0, r1):
     return f"${L}${r0}:${L}${r1}"
 
 
-def qual(sn):
-    """数式に書くシートの頭。別ブックなら [ファイル名] を付ける（VBA の Qual）"""
-    if SRC_BOOK == BOOK:
-        return f"'{sn}'!"
-    return f"'[{SRC_BOOK}]{sn}'!"
-
 
 def build_sumif(wb, sn, tname, thk_ref, kind):
     b = find_block(wb, sn)
@@ -157,7 +148,7 @@ def build_sumif(wb, sn, tname, thk_ref, kind):
         return "", f"{sn} に {BLOCK_LABEL} のブロックがありません"
     r0, r1, a_thk, a_sum, c_thk, c_sum = b
     crit = f"'{tname}'!{thk_ref}"
-    q = qual(sn)
+    q = f"'{sn}'!"
     out = ""
     if "As" in kind and a_sum:
         out = f"SUMIF({q}{rng(a_thk, r0, r1)},{crit},{q}{rng(a_sum, r0, r1)})"
@@ -219,21 +210,19 @@ def kind_of_row(ws, r, first_col):
 
 def main():
     wb = openpyxl.load_workbook(os.path.join(FOLDER, BOOK))
-    src = wb if SRC_BOOK == BOOK else openpyxl.load_workbook(
-        os.path.join(FOLDER, SRC_BOOK))
     if TARGET_SHEET not in wb.sheetnames:
         print("シートがありません:", TARGET_SHEET)
         return 1
     ws = wb[TARGET_SHEET]
-    print(f"総括表 {BOOK} / 転記元 {SRC_BOOK}")
+    print(f"ブック {WORK}/{BOOK}")
 
     pairs = [p.split("=", 1) for p in COL_MAP.split("|") if "=" in p]
     first_col = min(ci(c) for c, _ in pairs)
 
     print("=== 転記元の対応（確認画面に出るもの）===")
     for cl, sn in pairs:
-        b = find_block(src, sn)
-        if sn not in src.sheetnames:
+        b = find_block(wb, sn)
+        if sn not in wb.sheetnames:
             note = "★シートがありません"
         elif not b:
             note = "★破砕のブロックがありません"
@@ -263,7 +252,7 @@ def main():
         for cl, sn in pairs:
             if not is_input_cell(ws, r, ci(cl)):
                 continue
-            f, note = build_sumif(src, sn, ws.title, tr, kd)
+            f, note = build_sumif(wb, sn, ws.title, tr, kd)
             if not f:
                 skipped.append((r, cl, note))
             else:
