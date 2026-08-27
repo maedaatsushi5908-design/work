@@ -2,10 +2,10 @@
 """転記定義の検証スクリプト
 
 VBA の M_Engine と同じ解決ロジックを移植したもの。
-excel/original/ の実ファイルに対して、定義どおりの行・列に到達し、
+excel/works/01_higashishirakawa/ の実ファイルに対して、定義どおりの行・列に到達し、
 総括表の現在値と一致するかを確認する。
 
-    cd excel/original && python3 ../docs/verify_mapping.py
+    cd excel/works/01_higashishirakawa && python3 ../../docs/verify_mapping.py
 
 VBA を書き換えたら、こちらのロジックも合わせて更新すること。
 """

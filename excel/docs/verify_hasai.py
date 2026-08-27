@@ -4,7 +4,8 @@
 作成環境に Excel が無いので、マクロの判定をそのまま Python に写して
 「どのセルに何が入るか」を出す。VBA を直したらこちらも直すこと。
 
-    python3 excel/docs/verify_hasai.py
+    python3 excel/docs/verify_hasai.py                    # 1件目の工事
+    WORK=02 python3 excel/docs/verify_hasai.py            # 別の工事
 """
 import collections
 import os
@@ -16,7 +17,8 @@ from openpyxl.utils import get_column_letter as gl
 from openpyxl.utils import column_index_from_string as ci
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BOOK = os.path.join(HERE, "..", "original", "06_dokou_hosou.xlsx")
+WORK = os.environ.get("WORK", "01_higashishirakawa")
+BOOK = os.path.join(HERE, "..", "works", WORK, "06_dokou_hosou.xlsx")
 
 # ---- M_Hasai の先頭にある設定と同じもの -----------------------------------
 TARGET_SHEET = "総括表（土工事）"
