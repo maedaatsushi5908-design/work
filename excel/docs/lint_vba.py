@@ -11,7 +11,10 @@
       書くと、VBA は大文字小文字を区別しないので同じ名前になり壊れる）
   4. VBA / Excel の関数と同じ名前を変数に使っていないか
      （`Dim Val As String` と書くと、そのあと Val() を呼べなくなる）
-  5. 全角スペースがコード行に混ざっていないか
+  5. 関数の戻り値に直接添字を付けていないか
+     （`Split(s, ",")(1)` は要素が足りないと実行時に落ちる。
+      VBA の And は左が偽でも右を評価するので、個数の確認では守れない）
+  6. 全角スペースがコード行に混ざっていないか
 
     python3 excel/docs/lint_vba.py            # src と dist をまとめて
     python3 excel/docs/lint_vba.py excel/vba/src/M_Link.bas
@@ -72,6 +75,11 @@ def strip_literals(line):
 
 
 VAR_AS = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s+As\s+", re.I)
+# 関数の戻り値へ直接付けた添字。いったん変数に受けてから触ること
+# 配列を返す組み込み関数。ジャグ配列の rows_(r)(2) などは対象にしない
+ARRAY_FUNCS = "Split|Filter|Array"
+CALL_INDEX = re.compile(
+    r"\b(" + ARRAY_FUNCS + r")\s*\((?:[^()]|\([^()]*\))*\)\s*\(\s*([1-9]\d*)\s*\)", re.I)
 FOR_EACH = re.compile(r"\bFor\s+Each\s+([A-Za-z_][A-Za-z0-9_]*)\b", re.I)
 OPENER = re.compile(r"^\s*(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?(Sub|Function|Property)\b", re.I)
 PROC_NAME = re.compile(
@@ -143,6 +151,13 @@ def check(path):
                 problems.append(
                     (ln, f"For Each の変数が手続きと同じ名前: {name}", code[:78])
                 )
+
+        for m in CALL_INDEX.finditer(code):
+            problems.append(
+                (ln, f"{m.group(1)}() の戻り値に直接添字 ({m.group(2)})"
+                     "（要素が足りないと実行時に落ちる。変数に受けてから触ること）",
+                 code[:78])
+            )
 
         if "　" in code:
             problems.append((ln, "コード行に全角スペース", code[:78]))

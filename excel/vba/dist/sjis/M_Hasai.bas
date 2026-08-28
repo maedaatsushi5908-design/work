@@ -146,23 +146,27 @@ Public Sub 総括表の数量を転記する()
     If ws Is Nothing Then
         MsgBox "シートが見つかりません: " & TARGET_SHEET & vbCrLf & vbCrLf & _
                "マクロの先頭にある TARGET_SHEET を、" & vbCrLf & _
-               "実際のシート名に書き換えてください。", vbExclamation, "舗装版破砕の転記"
+               "実際のシート名に書き換えてください。", vbExclamation, "総括表の数量を転記"
         Exit Sub
     End If
 
     ParseMap cols, srcs, nCol
     If nCol = 0 Then
         MsgBox "COL_MAP が読み取れません。マクロの先頭を確かめてください。", _
-               vbExclamation, "舗装版破砕の転記"
+               vbExclamation, "総括表の数量を転記"
         Exit Sub
     End If
+
+    ' ここから先は、転記元の読み取りでつまずいても
+    ' コード画面に飛ばさず、メッセージで知らせる
+    On Error GoTo Failed
 
     firstCol = FirstMapCol(cols, nCol)
     nRow = CountSectionRows(ws, firstCol)
     thkCol = ThickCol(ws, firstCol)
     If thkCol = 0 Then
         MsgBox SECTION_LABEL & " の行に舗装厚の数値が見つかりません。" & vbCrLf & _
-               "対象シートが違うかもしれません。", vbExclamation, "舗装版破砕の転記"
+               "対象シートが違うかもしれません。", vbExclamation, "総括表の数量を転記"
         Exit Sub
     End If
 
@@ -181,12 +185,11 @@ Public Sub 総括表の数量を転記する()
           "書き込む前にバックアップを取ります。" & vbCrLf & vbCrLf & _
           "続けますか？"
 
-    If MsgBox(msg, vbYesNo + vbQuestion, "舗装版破砕の転記") <> vbYes Then Exit Sub
+    If MsgBox(msg, vbYesNo + vbQuestion, "総括表の数量を転記") <> vbYes Then Exit Sub
 
     ' --- バックアップ → 書き込み --------------------------------------
     scr = Application.ScreenUpdating
     calc = Application.Calculation
-    On Error GoTo Failed
     Application.ScreenUpdating = False
     Application.Calculation = xlCalculationManual
 
@@ -204,7 +207,7 @@ Public Sub 総括表の数量を転記する()
         MsgBox "1つも書き込みませんでした。" & vbCrLf & vbCrLf & _
                Diagnose(ws, cols, srcs, nCol, firstCol) & vbCrLf & _
                "バックアップ " & bk & " は消してかまいません。", _
-               vbExclamation, "舗装版破砕の転記"
+               vbExclamation, "総括表の数量を転記"
     Else
         msg = nWrite & " 個のセルに数式を入れました。" & vbCrLf
         If nSkip > 0 Then
@@ -225,7 +228,7 @@ Failed:
     Application.Calculation = calc
     Application.ScreenUpdating = scr
     MsgBox "処理中にエラーが発生しました。" & vbCrLf & _
-           Err.Number & ": " & Err.Description, vbCritical, "舗装版破砕の転記"
+           Err.Number & ": " & Err.Description, vbCritical, "総括表の数量を転記"
 End Sub
 
 '==================================================================
@@ -543,9 +546,12 @@ Private Function FindBlock(ByVal sn As String, ByVal anchor As String, _
     If mBlock.Exists(key) Then
         cached = mBlock(key)
         If Len(cached) = 0 Then Exit Function
-        r0 = CLng(Split(cached, ";")(0))
-        r1 = CLng(Split(cached, ";")(1))
-        pairs = Split(cached, ";")(2)
+        Dim c3 As Variant
+        c3 = Split(cached, ";")
+        If UBound(c3) < 2 Then Exit Function
+        r0 = CLng(c3(0))
+        r1 = CLng(c3(1))
+        pairs = CStr(c3(2))
         FindBlock = True
         Exit Function
     End If
@@ -672,14 +678,16 @@ Private Function ScanGokouHeader(ByVal ws As Worksheet, ByVal sect As Long, _
 
     r0 = hdr + 1
     r1 = r0 - 1
-    thk = CLng(Split(cols, ",")(0))
+    Dim cArr As Variant
+    cArr = Split(Left$(cols, Len(cols) - 1), ",")
+    thk = CLng(cArr(0))
     For r = r0 To r0 + 40
         If IsEmpty(ws.Cells(r, thk).Value) Then Exit For
         r1 = r
     Next r
     If r1 < r0 Then Exit Function
 
-    For Each p In Split(Left$(cols, Len(cols) - 1), ",")
+    For Each p In cArr
         Set mc = ws.Cells(hdr, CLng(p)).MergeArea
         thk = mc.Column
         sum_ = thk + 1
@@ -733,14 +741,33 @@ Private Function Where(ByVal sn As String, ByVal anchor As String) As String
     End If
 End Function
 
-' 枠の一覧を「As+Co」「As×2」のように短く表す
+' 枠の一覧を「As+Co」「As x2」のように短く表す
+'
+' 枠が1つしか無いシート（仮配（舗）で Split(pairs,"|")(1) を読んでいて
+' 実行時エラーになっていた。VBA の And は左が偽でも右を評価するので、
+' 個数を確かめてから触ること。
 Private Function KindsOf(ByVal pairs As String) As String
-    Dim p As Variant, out As String, n As Long
-    For Each p In Split(pairs, "|")
-        out = out & IIf(Len(out) = 0, "", "+") & Split(CStr(p), ",")(0)
-        n = n + 1
-    Next p
-    If n = 2 And Split(pairs, "|")(0) = Split(pairs, "|")(1) Then out = "As×2"
+    Dim arr As Variant, one As Variant, i As Long
+    Dim out As String, k As String, head As String, same As Boolean
+
+    If Len(pairs) = 0 Then Exit Function
+    arr = Split(pairs, "|")
+    same = True
+
+    For i = 0 To UBound(arr)
+        one = Split(CStr(arr(i)), ",")
+        k = CStr(one(0))
+        If i = 0 Then
+            head = k
+        ElseIf k <> head Then
+            same = False
+        End If
+        If Len(out) > 0 Then out = out & "+"
+        out = out & k
+    Next i
+
+    ' 同じ種別の枠が2つ以上あるとき（給水2度の 車道・歩道）は短くする
+    If same And UBound(arr) >= 1 Then out = head & " x" & (UBound(arr) + 1)
     KindsOf = out
 End Function
 

@@ -12,7 +12,7 @@ excel/vba/src/          保守用。ここを直す
   M_Main.bas              01 用。照合・転記の入口
 
 excel/vba/dist/         貼り付け用。src から生成する
-  M_Hasai.bas             06 に貼る1ファイル（1015行）
+  M_Hasai.bas             06 に貼る1ファイル（1042行）
   M_Tenki.bas             01 に貼る1ファイル（1079行）
   sjis/                   同じものの Shift-JIS 版（インポート用）
 ```
@@ -334,6 +334,9 @@ I16 に厚さを打てば、その場で数量が出る。
   - **手続き名と同じ名前の変数**（`Function LastRow()` と `Dim lastRow` は
     VBA が大文字小文字を区別しないため衝突する）
   - VBA / Excel の関数と同じ名前の変数（`Dim Val As String` など）
+  - **関数の戻り値への直接添字**（`Split(s, "|")(1)`。要素が足りないと
+    実行時に落ちる。VBA の `And` は左が偽でも右を評価するので、
+    `If n = 2 And Split(s,"|")(1) = …` では守れない）
   - モジュールレベルの宣言が手続きより後ろに来ていないか
   - Sub / Function と End の対応、コード行の全角スペース
 
