@@ -12,20 +12,31 @@ Option Explicit
 
 '--- M_Hasai.bas の宣言 ---------------------------------------
 '==================================================================
-' M_Hasai － 舗装版破砕の数量を、舗装厚で照合して転記する
+' M_Hasai － 総括表（土工事）へ数量を転記する
 '
 ' マクロは1本だけ。
 '
-'     舗装版破砕を転記する()
+'     総括表の数量を転記する()
 '
-' 入れる数式はこれだけ。
+' いまのところ2つの工種を扱う。転記元の並び方が違うので式も違う。
+'
+' ● 舗装版破砕工 … SUMIF で厚さを照合する
 '
 '   =SUMIF('試掘（舗50'!$O$11:$O$17,'総括表（土工事）'!$I14,'試掘（舗50'!$P$11:$P$17)
 '           └ 転記元の舗装厚欄      └ 総括表の厚さ欄      └ 転記元の合計欄
 '
-' 転記元の舗装厚は、その工事に出てくる厚さだけが詰めて並ぶ。
-' 4cm が無い工事では 5cm が先頭に来るので、同じセルを見ていると
-' 別の厚さの数量を拾ってしまう。だから厚さで照合する。
+'   転記元の舗装厚は、その工事に出てくる厚さだけが詰めて並ぶ。
+'   4cm が無い工事では 5cm が先頭に来るので、同じセルを見ていると
+'   別の厚さの数量を拾ってしまう。だから厚さで照合する。
+'
+' ● 舗装切断工 … 行を探して直接参照する
+'
+'   ='試掘（舗50'!P5
+'
+'   こちらの厚さ区分は t≦15 / 15<t≦30 / 30<t≦40 と固定の文字で、
+'   詰めて動くことがない。だから直接参照でよい。
+'   ただし行の位置はシートによって違う（試掘は4行目から、管工は10行目から）
+'   ので、マクロを流すたびに区分を照合して行を決め直す。
 '
 ' 書き込む先は、総括表で黄色く塗ってある入力セルだけ。
 ' As の行は転記元の As 側、Co の行は Co 側、As・Co の行は両方を足す。
@@ -77,11 +88,12 @@ Private Const COL_MAP As String = _
 ' 下書きは python3 excel/docs/scan_work.py excel/works/<工事> で作れる。
 ' --------------------------------------------------------------------
 
-' 総括表で、いちばん左の工種名がこの言葉を含む行だけを対象にする
+' 扱う工種。総括表のいちばん左の工種名と、転記元のブロック見出し。
+' 工種を増やすときはここに足して、WriteAll の振り分けに1行足す。
 Private Const SECTION_LABEL As String = "舗装版破砕"
-
-' 転記元シートで、ブロックの先頭にある見出し
 Private Const BLOCK_LABEL As String = "□舗装版破砕"
+Private Const CUT_LABEL As String = "舗装切断工"
+Private Const CUT_BLOCK As String = "□舗装切断工"
 
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
@@ -92,6 +104,7 @@ Private Const REPORT_SHEET As String = "転記結果"
 ' 書き込んだ1セル分の控え
 Private Type TRec
     Addr_   As String
+    Sect    As String
     Thick   As String
     Kind    As String
     Src     As String
@@ -113,7 +126,7 @@ Private mBlock As Object
 '==================================================================
 ' 唯一の入口
 '==================================================================
-Public Sub 舗装版破砕を転記する()
+Public Sub 総括表の数量を転記する()
     Dim ws As Worksheet
     Dim cols() As String, srcs() As String, nCol As Long
     Dim recs() As TRec
@@ -149,7 +162,7 @@ Public Sub 舗装版破砕を転記する()
 
     ' --- 何をするかを見せて確認 --------------------------------------
     msg = "対象シート: " & ws.Name & vbCrLf & _
-          SECTION_LABEL & " の行: " & nRow & " 行" & vbCrLf & _
+          "対象の行: " & nRow & " 行（" & SECTION_LABEL & "・" & CUT_LABEL & "）" & vbCrLf & _
           "舗装厚の列: " & ColLetter(thkCol) & " 列" & vbCrLf & vbCrLf & _
           "転記元の対応" & vbCrLf & _
           "----------------------------------------" & vbCrLf
@@ -219,6 +232,7 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                           ByRef recs() As TRec) As Long
     Dim r As Long, i As Long, lastRow As Long, n As Long
     Dim thkRef As String, kind As String, f As String, note As String
+    Dim sect As String
     Dim cel As Range, thkCell As Range
 
     why = ""
@@ -226,40 +240,52 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
     ReDim recs(0 To 400)
 
     For r = 1 To lastRow
-        If IsSectionRow(ws, r, firstCol) Then
+        sect = SectionOf(ws, r, firstCol)
+        If Len(sect) > 0 Then
             Set thkCell = ws.Cells(r, thkCol).MergeArea.Cells(1, 1)
+            kind = KindOfRow(ws, r, firstCol)
 
-            ' 「計」などの文字が入っている行は合計欄なので触らない。
-            ' 空欄の行は書き込む。予備の行に厚さを入れたとき、
-            ' そのまま数量が出るようにするため（SUMIF は空欄に当たらない）。
-            If Not IsTextCell(thkCell) Then
+            ' 舗装版破砕は厚さが数値。「計」などの文字が入っている行は
+            ' 合計欄なので触らない。空欄の行は書き込む。予備の行に厚さを
+            ' 入れたとき、そのまま数量が出るようにするため。
+            ' 舗装切断工は厚さが区分の文字（t≦15㎝）なので、文字でよい。
+            Dim ok As Boolean
+            If sect = SECTION_LABEL Then
+                ok = Not IsTextCell(thkCell)
+            Else
+                ok = IsTextCell(thkCell)
+            End If
+
+            If ok And Len(kind) > 0 Then
                 thkRef = "$" & ColLetter(thkCell.Column) & thkCell.Row
-                kind = KindOfRow(ws, r, firstCol)
-                If Len(kind) > 0 Then
-                    For i = 0 To nCol - 1
-                        Set cel = ws.Cells(r, ColNum(cols(i)))
-                        If IsInputCell(cel) Then
-                            note = ""
+                For i = 0 To nCol - 1
+                    Set cel = ws.Cells(r, ColNum(cols(i)))
+                    If IsInputCell(cel) Then
+                        note = ""
+                        If sect = SECTION_LABEL Then
                             f = BuildSumif(srcs(i), ws.Name, thkRef, kind, note)
-                            If Len(f) = 0 Then
-                                nSkip = nSkip + 1
-                            Else
-                                If n > UBound(recs) Then ReDim Preserve recs(0 To n + 200)
-                                recs(n).Addr_ = cel.Address(False, False)
-                                recs(n).Thick = CStr(thkCell.Text)
-                                recs(n).Kind = kind
-                                recs(n).Src = srcs(i)
-                                recs(n).Expr = f
-                                recs(n).OldV = NumOrEmpty(cel)
-                                cel.Formula = f
-                                n = n + 1
-                            End If
-                            If Len(note) > 0 And InStr(why, note) = 0 Then
-                                why = why & "　" & note & vbCrLf
-                            End If
+                        Else
+                            f = CutRef(srcs(i), CStr(thkCell.Text), kind, note)
                         End If
-                    Next i
-                End If
+                        If Len(f) = 0 Then
+                            nSkip = nSkip + 1
+                        Else
+                            If n > UBound(recs) Then ReDim Preserve recs(0 To n + 200)
+                            recs(n).Addr_ = cel.Address(False, False)
+                            recs(n).Sect = sect
+                            recs(n).Thick = CStr(thkCell.Text)
+                            recs(n).Kind = kind
+                            recs(n).Src = srcs(i)
+                            recs(n).Expr = f
+                            recs(n).OldV = NumOrEmpty(cel)
+                            cel.Formula = f
+                            n = n + 1
+                        End If
+                        If Len(note) > 0 And InStr(why, note) = 0 Then
+                            why = why & "　" & note & vbCrLf
+                        End If
+                    End If
+                Next i
             End If
         End If
     Next r
@@ -291,7 +317,7 @@ Private Function ThickCol(ByVal ws As Worksheet, ByVal firstCol As Long) As Long
     ReDim hits(0 To firstCol)
 
     For r = 1 To lastRow
-        If IsSectionRow(ws, r, firstCol) Then
+        If SectionOf(ws, r, firstCol) = SECTION_LABEL Then
             For c = firstCol - 1 To 1 Step -1
                 Set tr = ws.Cells(r, c).MergeArea.Cells(1, 1)
                 If IsNum(tr.Value) Then
@@ -328,7 +354,7 @@ Private Sub WriteReport(ByVal ws As Worksheet, ByRef recs() As TRec, ByVal n As 
         After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
     rp.Name = REPORT_SHEET
 
-    rp.Range("A1").Value = ws.Name & " の " & SECTION_LABEL & " に入れた式　" & _
+    rp.Range("A1").Value = ws.Name & " に入れた式　" & _
                            Format$(Now, "yyyy/mm/dd hh:nn")
     rp.Range("A1").Font.Bold = True
     rp.Range("A2").Value = "※ このシートは要らなければ消してかまいません"
@@ -336,32 +362,34 @@ Private Sub WriteReport(ByVal ws As Worksheet, ByRef recs() As TRec, ByVal n As 
 
     r = 4
     rp.Cells(r, 1).Value = "セル"
-    rp.Cells(r, 2).Value = "舗装厚"
-    rp.Cells(r, 3).Value = "種別"
-    rp.Cells(r, 4).Value = "転記元"
-    rp.Cells(r, 5).Value = "前の値"
-    rp.Cells(r, 6).Value = "後の値"
-    rp.Cells(r, 7).Value = "入れた式"
-    rp.Range(rp.Cells(r, 1), rp.Cells(r, 7)).Font.Bold = True
-    rp.Range(rp.Cells(r, 1), rp.Cells(r, 7)).Interior.Color = RGB(226, 239, 218)
+    rp.Cells(r, 2).Value = "工種"
+    rp.Cells(r, 3).Value = "舗装厚"
+    rp.Cells(r, 4).Value = "種別"
+    rp.Cells(r, 5).Value = "転記元"
+    rp.Cells(r, 6).Value = "前の値"
+    rp.Cells(r, 7).Value = "後の値"
+    rp.Cells(r, 8).Value = "入れた式"
+    rp.Range(rp.Cells(r, 1), rp.Cells(r, 8)).Font.Bold = True
+    rp.Range(rp.Cells(r, 1), rp.Cells(r, 8)).Interior.Color = RGB(226, 239, 218)
 
     For i = 0 To n - 1
         r = r + 1
         rp.Cells(r, 1).Value = recs(i).Addr_
-        rp.Cells(r, 2).Value = recs(i).Thick
-        rp.Cells(r, 3).Value = recs(i).Kind
-        rp.Cells(r, 4).Value = recs(i).Src
-        If Not IsEmpty(recs(i).OldV) Then rp.Cells(r, 5).Value = recs(i).OldV
-        rp.Cells(r, 6).Value = ws.Range(recs(i).Addr_).Value
-        rp.Cells(r, 7).Value = "'" & recs(i).Expr
+        rp.Cells(r, 2).Value = recs(i).Sect
+        rp.Cells(r, 3).Value = recs(i).Thick
+        rp.Cells(r, 4).Value = recs(i).Kind
+        rp.Cells(r, 5).Value = recs(i).Src
+        If Not IsEmpty(recs(i).OldV) Then rp.Cells(r, 6).Value = recs(i).OldV
+        rp.Cells(r, 7).Value = ws.Range(recs(i).Addr_).Value
+        rp.Cells(r, 8).Value = "'" & recs(i).Expr
         ' 値が変わったところに色を付ける
         If Differs(recs(i).OldV, ws.Range(recs(i).Addr_).Value) Then
-            rp.Range(rp.Cells(r, 1), rp.Cells(r, 7)).Interior.Color = RGB(255, 235, 156)
+            rp.Range(rp.Cells(r, 1), rp.Cells(r, 8)).Interior.Color = RGB(255, 235, 156)
         End If
     Next i
 
     rp.Columns.AutoFit
-    If rp.Columns(7).ColumnWidth > 70 Then rp.Columns(7).ColumnWidth = 70
+    If rp.Columns(8).ColumnWidth > 70 Then rp.Columns(8).ColumnWidth = 70
     On Error Resume Next
     rp.Activate
     rp.Rows(5).Select
@@ -389,7 +417,7 @@ Private Function BuildSumif(ByVal sn As String, ByVal tName As String, _
     Dim asThk As Long, asSum As Long, coThk As Long, coSum As Long
     Dim out As String, crit As String
 
-    If Not FindBlock(sn, r0, r1, asThk, asSum, coThk, coSum) Then
+    If Not FindBlock(sn, BLOCK_LABEL, r0, r1, asThk, asSum, coThk, coSum) Then
         note = sn & " に " & BLOCK_LABEL & " のブロックがありません"
         Exit Function
     End If
@@ -438,16 +466,18 @@ End Function
 ' 行は As / Co が続くところまで。次の工事で厚さが1種類増えても
 ' 式を直さずに済むよう、予備を1行足す。SUMIF は空欄に当たらない。
 '==================================================================
-Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Long, _
+Private Function FindBlock(ByVal sn As String, ByVal anchor As String, _
+                           ByRef r0 As Long, ByRef r1 As Long, _
                            ByRef asThk As Long, ByRef asSum As Long, _
                            ByRef coThk As Long, ByRef coSum As Long) As Boolean
     Dim ws As Worksheet, r As Long, c As Long, sect As Long, hdr As Long
     Dim kinds As String, totals As String, i As Long, v As String
-    Dim kArr As Variant, tArr As Variant, cached As String
+    Dim kArr As Variant, tArr As Variant, cached As String, key As String
 
+    key = anchor & "|" & sn
     If mBlock Is Nothing Then Set mBlock = CreateObject("Scripting.Dictionary")
-    If mBlock.Exists(sn) Then
-        cached = mBlock(sn)
+    If mBlock.Exists(key) Then
+        cached = mBlock(key)
         If Len(cached) = 0 Then Exit Function
         r0 = CLng(Split(cached, "|")(0))
         r1 = CLng(Split(cached, "|")(1))
@@ -458,7 +488,7 @@ Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lon
         FindBlock = True
         Exit Function
     End If
-    mBlock(sn) = ""
+    mBlock(key) = ""
 
     Set ws = FindSheet(sn)
     If ws Is Nothing Then Exit Function
@@ -466,7 +496,7 @@ Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lon
     ' ブロックの見出しを探す
     For r = 1 To 60
         For c = 1 To 60
-            If InStr(Norm(ws.Cells(r, c).Value), Norm(BLOCK_LABEL)) > 0 Then
+            If InStr(Norm(ws.Cells(r, c).Value), Norm(anchor)) > 0 Then
                 sect = r
                 Exit For
             End If
@@ -520,7 +550,7 @@ Private Function FindBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lon
     If r1 < r0 Then Exit Function
     r1 = r1 + 1                       ' 予備を1行
 
-    mBlock(sn) = r0 & "|" & r1 & "|" & asThk & "|" & asSum & "|" & coThk & "|" & coSum
+    mBlock(key) = r0 & "|" & r1 & "|" & asThk & "|" & asSum & "|" & coThk & "|" & coSum
     FindBlock = True
 End Function
 
@@ -537,43 +567,108 @@ End Function
 
 ' 確認画面に出す一言
 Private Function BlockNote(ByVal sn As String) As String
-    Dim r0 As Long, r1 As Long
-    Dim asThk As Long, asSum As Long, coThk As Long, coSum As Long
-
     If FindSheet(sn) Is Nothing Then
         BlockNote = "★シートがありません"
         Exit Function
     End If
-    If Not FindBlock(sn, r0, r1, asThk, asSum, coThk, coSum) Then
-        BlockNote = "★破砕のブロックがありません"
+    BlockNote = "破砕" & Where(sn, BLOCK_LABEL) & "  切断" & Where(sn, CUT_BLOCK)
+End Function
+
+Private Function Where(ByVal sn As String, ByVal anchor As String) As String
+    Dim r0 As Long, r1 As Long
+    Dim asThk As Long, asSum As Long, coThk As Long, coSum As Long
+    If Not FindBlock(sn, anchor, r0, r1, asThk, asSum, coThk, coSum) Then
+        Where = "★なし"
+    Else
+        Where = r0 & "-" & r1 & "行" & IIf(coSum = 0, "(Coなし)", "")
+    End If
+End Function
+
+'------------------------------------------------------------------
+' 舗装切断工の1セル分。行を探して直接参照にする
+'
+'   ='試掘（舗50'!P5
+'
+' 厚さ区分は固定の文字なので、詰めて動くことはない。ただし行の位置は
+' シートによって違う（試掘は4行目から、管工は10行目から）ので、
+' 区分を照合して行を決める。総括表は「t≦15㎝」、転記元は「t≦15」と
+' ㎝ の有無が違うため、㎝ を落として突き合わせる。
+'------------------------------------------------------------------
+Private Function CutRef(ByVal sn As String, ByVal label As String, _
+                        ByVal kind As String, ByRef note As String) As String
+    Dim r0 As Long, r1 As Long
+    Dim asThk As Long, asSum As Long, coThk As Long, coSum As Long
+    Dim thkCol As Long, sumCol As Long, r As Long, ws As Worksheet
+    Dim want As String
+
+    If Not FindBlock(sn, CUT_BLOCK, r0, r1, asThk, asSum, coThk, coSum) Then
+        note = sn & " に " & CUT_BLOCK & " のブロックがありません"
         Exit Function
     End If
-    BlockNote = "(" & r0 & "-" & r1 & "行 As=" & ColLetter(asThk) & "/" & ColLetter(asSum)
-    If coSum > 0 Then
-        BlockNote = BlockNote & " Co=" & ColLetter(coThk) & "/" & ColLetter(coSum) & ")"
-    Else
-        BlockNote = BlockNote & " Coなし)"
+
+    If InStr(kind, "As") > 0 Then
+        thkCol = asThk: sumCol = asSum
+    ElseIf InStr(kind, "Co") > 0 Then
+        thkCol = coThk: sumCol = coSum
     End If
+    If sumCol = 0 Then
+        note = sn & " に " & kind & " 側の欄がありません"
+        Exit Function
+    End If
+
+    want = NormLabel(label)
+    If Len(want) = 0 Then
+        note = "総括表の厚さ区分が読めません"
+        Exit Function
+    End If
+
+    Set ws = FindSheet(sn)
+    For r = r0 To r1
+        If NormLabel(ws.Cells(r, thkCol).Value) = want Then
+            CutRef = "='" & sn & "'!" & ColLetter(sumCol) & r
+            Exit Function
+        End If
+    Next r
+    note = sn & " に「" & label & "」の行がありません"
+End Function
+
+' 厚さ区分の文字をそろえる。t≦15㎝ も t≦15 も同じものとして扱う
+Private Function NormLabel(ByVal v As Variant) As String
+    Dim t As String
+    t = Norm(v)
+    t = Replace(t, ChrW(&H339D), "")      ' ㎝（U+339D）
+    t = Replace(t, "CM", "")
+    NormLabel = t
 End Function
 
 '==================================================================
 ' 総括表side の読み取り
 '==================================================================
 
-' いちばん左の工種名が SECTION_LABEL を含む行か
-Private Function IsSectionRow(ByVal ws As Worksheet, ByVal r As Long, _
-                              ByVal firstCol As Long) As Boolean
+' いちばん左の工種名で、どの工種の行かを返す。対象外なら空文字
+Private Function SectionOf(ByVal ws As Worksheet, ByVal r As Long, _
+                           ByVal firstCol As Long) As String
     Dim c As Long, v As Variant, t As String
     For c = 1 To firstCol - 1
         v = MergedValue(ws, r, c)
         If Not IsEmpty(v) Then
             t = CStr(v)
             If Len(Trim$(t)) > 0 And Left$(t, 1) <> "=" Then
-                IsSectionRow = (InStr(Norm(t), Norm(SECTION_LABEL)) > 0)
+                t = Norm(t)
+                If InStr(t, Norm(SECTION_LABEL)) > 0 Then
+                    SectionOf = SECTION_LABEL
+                ElseIf InStr(t, Norm(CUT_LABEL)) > 0 Then
+                    SectionOf = CUT_LABEL
+                End If
                 Exit Function
             End If
         End If
     Next c
+End Function
+
+Private Function IsSectionRow(ByVal ws As Worksheet, ByVal r As Long, _
+                              ByVal firstCol As Long) As Boolean
+    IsSectionRow = (Len(SectionOf(ws, r, firstCol)) > 0)
 End Function
 
 Private Function CountSectionRows(ByVal ws As Worksheet, ByVal firstCol As Long) As Long
@@ -623,19 +718,16 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
                           ByRef srcs() As String, ByVal nCol As Long, _
                           ByVal firstCol As Long) As String
     Dim r As Long, i As Long, lastRow As Long, thkCol As Long
-    Dim nSect As Long, nThk As Long, nKind As Long, nYellow As Long, nBlock As Long
+    Dim nHas As Long, nCut As Long, nKind As Long, nYellow As Long
+    Dim nB1 As Long, nB2 As Long, sect As String
     Dim r0 As Long, r1 As Long, a1 As Long, a2 As Long, c1 As Long, c2 As Long
 
     lastRow = LastUsedRow(ws)
     thkCol = ThickCol(ws, firstCol)
     For r = 1 To lastRow
-        If IsSectionRow(ws, r, firstCol) Then
-            nSect = nSect + 1
-            If thkCol > 0 Then
-                If Not IsTextCell(ws.Cells(r, thkCol).MergeArea.Cells(1, 1)) Then
-                    nThk = nThk + 1
-                End If
-            End If
+        sect = SectionOf(ws, r, firstCol)
+        If Len(sect) > 0 Then
+            If sect = SECTION_LABEL Then nHas = nHas + 1 Else nCut = nCut + 1
             If Len(KindOfRow(ws, r, firstCol)) > 0 Then nKind = nKind + 1
             For i = 0 To nCol - 1
                 If IsInputCell(ws.Cells(r, ColNum(cols(i)))) Then nYellow = nYellow + 1
@@ -643,16 +735,19 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
         End If
     Next r
     For i = 0 To nCol - 1
-        If FindBlock(srcs(i), r0, r1, a1, a2, c1, c2) Then nBlock = nBlock + 1
+        If FindBlock(srcs(i), BLOCK_LABEL, r0, r1, a1, a2, c1, c2) Then nB1 = nB1 + 1
+        If FindBlock(srcs(i), CUT_BLOCK, r0, r1, a1, a2, c1, c2) Then nB2 = nB2 + 1
     Next i
 
     Diagnose = _
         "調べたところ" & vbCrLf & _
-        "　" & SECTION_LABEL & " の行 … " & nSect & " 行" & vbCrLf & _
-        "　うち舗装厚の欄が使える行 … " & nThk & " 行" & "（厚さ列 " & IIf(thkCol > 0, ColLetter(thkCol), "?") & "）" & vbCrLf & _
-        "　うち種別(As/Co)が読めた行 … " & nKind & " 行" & vbCrLf & _
+        "　" & SECTION_LABEL & " の行 … " & nHas & " 行" & vbCrLf & _
+        "　" & CUT_LABEL & " の行 … " & nCut & " 行" & vbCrLf & _
+        "　厚さ列 … " & IIf(thkCol > 0, ColLetter(thkCol) & " 列", "見つからない") & vbCrLf & _
+        "　種別(As/Co)が読めた行 … " & nKind & " 行" & vbCrLf & _
         "　黄色い入力セル … " & nYellow & " 個" & vbCrLf & _
-        "　ブロックが見つかった転記元 … " & nBlock & " / " & nCol & " シート" & vbCrLf & vbCrLf & _
+        "　" & BLOCK_LABEL & " が見つかった転記元 … " & nB1 & " / " & nCol & " シート" & vbCrLf & _
+        "　" & CUT_BLOCK & " が見つかった転記元 … " & nB2 & " / " & nCol & " シート" & vbCrLf & vbCrLf & _
         "0 になっている項目が原因です。"
 End Function
 

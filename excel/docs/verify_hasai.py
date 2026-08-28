@@ -29,6 +29,8 @@ COL_MAP = os.environ.get("COL_MAP") or (
     "R=管工（舗50|S=管工（舗75|T=管工（舗400|U=管工（舗600")
 SECTION_LABEL = "舗装版破砕"
 BLOCK_LABEL = "□舗装版破砕"
+CUT_LABEL = "舗装切断工"
+CUT_BLOCK = "□舗装切断工"
 INPUT_COLOR = "FFFF00"
 
 
@@ -82,17 +84,18 @@ def is_input_cell(ws, r, c):
 _cache = {}
 
 
-def find_block(wb, sn):
-    if sn in _cache:
-        return _cache[sn]
-    _cache[sn] = None
+def find_block(wb, sn, anchor=BLOCK_LABEL):
+    key = (anchor, sn)
+    if key in _cache:
+        return _cache[key]
+    _cache[key] = None
     if sn not in wb.sheetnames:
         return None
     ws = wb[sn]
     sect = 0
     for r in range(1, 61):
         for c in range(1, 61):
-            if norm(BLOCK_LABEL) in norm(ws.cell(r, c).value):
+            if norm(anchor) in norm(ws.cell(r, c).value):
                 sect = r
                 break
         if sect:
@@ -132,8 +135,8 @@ def find_block(wb, sn):
         r1 = r
     if r1 < r0:
         return None
-    _cache[sn] = (r0, r1 + 1, a_thk, a_sum, c_thk, c_sum)   # 予備を1行
-    return _cache[sn]
+    _cache[key] = (r0, r1 + 1, a_thk, a_sum, c_thk, c_sum)   # 予備を1行
+    return _cache[key]
 
 
 def rng(col, r0, r1):
@@ -165,21 +168,60 @@ def build_sumif(wb, sn, tname, thk_ref, kind):
 
 
 # ---- 総括表側の読み取り ----------------------------------------------------
-def is_section_row(ws, r, first_col):
+def section_of(ws, r, first_col):
+    """いちばん左の工種名で、どの工種の行かを返す（VBA の SectionOf）"""
     for c in range(1, first_col):
         v = merged_value(ws, r, c)
         if v is None:
             continue
         t = str(v)
         if t.strip() and not t.startswith("="):
-            return norm(SECTION_LABEL) in norm(t)
-    return False
+            t = norm(t)
+            if norm(SECTION_LABEL) in t:
+                return SECTION_LABEL
+            if norm(CUT_LABEL) in t:
+                return CUT_LABEL
+            return ""
+    return ""
+
+
+def is_section_row(ws, r, first_col):
+    return bool(section_of(ws, r, first_col))
+
+
+def norm_label(v):
+    """厚さ区分の文字をそろえる。t≦15㎝ も t≦15 も同じ（VBA の NormLabel）"""
+    return norm(v).replace("\u339d", "").replace("CM", "")
+
+
+def cut_ref(wb, sn, label, kind):
+    """舗装切断工の1セル分。行を探して直接参照にする（VBA の CutRef）"""
+    b = find_block(wb, sn, CUT_BLOCK)
+    if not b:
+        return "", f"{sn} に {CUT_BLOCK} のブロックがありません"
+    r0, r1, a_thk, a_sum, c_thk, c_sum = b
+    thk, tot = (a_thk, a_sum) if "As" in kind else (c_thk, c_sum)
+    if not tot:
+        return "", f"{sn} に {kind} 側の欄がありません"
+    want = norm_label(label)
+    if not want:
+        return "", "総括表の厚さ区分が読めません"
+    ws = wb[sn]
+    for r in range(r0, r1 + 1):
+        if norm_label(ws.cell(r, thk).value) == want:
+            return f"='{sn}'!{gl(tot)}{r}", ""
+    return "", f"{sn} に「{label}」の行がありません"
 
 
 def thick_col(ws, rows, first_col):
-    """舗装厚の列。区間の行で数値が現れた回数がいちばん多い列（VBA の ThickCol）"""
+    """舗装厚の列。舗装版破砕の行で数値が現れた回数がいちばん多い列（VBA の ThickCol）
+
+    舗装切断工は厚さが区分の文字なので、列を数えるときは見ない。
+    """
     hits = collections.Counter()
     for r in rows:
+        if section_of(ws, r, first_col) != SECTION_LABEL:
+            continue
         for c in range(first_col - 1, 0, -1):
             tr, tc = merged_top(ws, r, c)
             if is_num(ws.cell(tr, tc).value):
@@ -240,10 +282,15 @@ def main():
     tc = thick_col(ws, rows, first_col)
     print(f"舗装厚の列: {gl(tc)} 列")
 
-    written, skipped, notes = {}, [], []
+    written, skipped, notes, sect_of = {}, [], [], {}
     for r in rows:
-        if is_text_cell(ws, r, tc):
-            continue                      # 「計」の行は触らない
+        sect = section_of(ws, r, first_col)
+        istext = is_text_cell(ws, r, tc)
+        # 破砕は厚さが数値（「計」の行は触らない）、切断は区分の文字
+        if sect == SECTION_LABEL and istext:
+            continue
+        if sect == CUT_LABEL and not istext:
+            continue
         mr, mc = merged_top(ws, r, tc)
         tr = f"${gl(mc)}{mr}"
         kd = kind_of_row(ws, r, first_col)
@@ -252,11 +299,15 @@ def main():
         for cl, sn in pairs:
             if not is_input_cell(ws, r, ci(cl)):
                 continue
-            f, note = build_sumif(wb, sn, ws.title, tr, kd)
+            if sect == SECTION_LABEL:
+                f, note = build_sumif(wb, sn, ws.title, tr, kd)
+            else:
+                f, note = cut_ref(wb, sn, str(ws.cell(mr, mc).value), kd)
             if not f:
                 skipped.append((r, cl, note))
             else:
                 written[(r, cl)] = f
+                sect_of[(r, cl)] = sect
                 if note:
                     notes.append((r, cl, note))
 
@@ -267,8 +318,15 @@ def main():
     for r in sorted(by_row):
         mr, mc = merged_top(ws, r, tc)
         thk = ws.cell(mr, mc).value
-        print(f"  {r:3}行 厚さ{str(thk):<6} {kind_of_row(ws, r, first_col):<5} "
+        sect = section_of(ws, r, first_col)
+        print(f"  {r:3}行 {sect:<6} 厚さ{str(thk):<9} {kind_of_row(ws, r, first_col):<5} "
               f"→ {','.join(sorted(by_row[r], key=ci))}")
+
+    print("\n=== 舗装切断工（9〜12行）の数式 ===")
+    for r in range(9, 13):
+        for cl in ("J", "M", "R"):
+            if (r, cl) in written:
+                print(f"  {cl}{r}: {written[(r, cl)]}")
 
     print("\n=== 13〜25行 J〜N の数式 ===")
     for r in range(13, 26):
@@ -280,6 +338,14 @@ def main():
             "'試掘（舗50'!$P$11:$P$17)")
     got = written.get((14, "J"), "")
     ok = got == want
+    for cell, expect in (("J10", "='試掘（舗50'!P5"), ("J12", "='試掘（舗50'!S5"),
+                         ("J9", "='試掘（舗50'!P4"), ("M11", "='試掘（舗400'!S4"),
+                         ("R9", "='管工（舗50'!T10"), ("S11", "='管工（舗75'!X10")):
+        r = int(cell[1:])
+        g = written.get((r, cell[0]), "")
+        mark = "一致" if g == expect else f"違う（{g}）"
+        print(f"{cell} = {expect}  … {mark}")
+        ok = ok and g == expect
     print("\nJ14 が指示どおりか:", "一致" if ok else f"違う\n  期待 {want}\n  実際 {got}")
 
     if skipped:
