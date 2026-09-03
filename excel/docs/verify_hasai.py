@@ -33,6 +33,10 @@ CUT_LABEL = "舗装切断工"
 CUT_BLOCK = "□舗装切断工"
 TORI_BLOCK = "□舗装版取壊工"      # 給水2度だけ並びが違う
 TORI_KIND = "As"
+KARA_LABEL = "殻運搬"             # 殻運搬（現場→処分地）
+KARA_SUB1 = "現場"
+KARA_SUB2 = "処分地"
+KARA_BLOCK = "●殻運搬処理"
 INPUT_COLOR = "FFFF00"
 
 
@@ -259,19 +263,95 @@ def cut_ref(wb, sn, label, kind):
 # ---- 総括表側の読み取り ----------------------------------------------------
 def section_of(ws, r, first_col):
     """いちばん左の工種名で、どの工種の行かを返す（VBA の SectionOf）"""
+    head, whole = "", ""
     for c in range(1, first_col):
         v = merged_value(ws, r, c)
         if v is None:
             continue
         t = str(v)
         if t.strip() and not t.startswith("="):
-            t = norm(t)
-            if norm(SECTION_LABEL) in t:
-                return SECTION_LABEL
-            if norm(CUT_LABEL) in t:
-                return CUT_LABEL
-            return ""
+            if not head:
+                head = norm(t)
+            whole += norm(t)
+    if not head:
+        return ""
+    if norm(SECTION_LABEL) in head:
+        return SECTION_LABEL
+    if norm(CUT_LABEL) in head:
+        return CUT_LABEL
+    if norm(KARA_LABEL) in head:
+        if norm(KARA_SUB1) in whole and norm(KARA_SUB2) in whole:
+            return KARA_LABEL
     return ""
+
+
+def group_label(ws, r, first_col):
+    """殻運搬の行の摘要（As・車道 など）（VBA の GroupLabel）"""
+    for c in range(1, first_col):
+        v = merged_value(ws, r, c)
+        t = norm(v)
+        if "AS" in t or "CO" in t:
+            return str(v)
+    return ""
+
+
+def norm_group(v):
+    """摘要をそろえる。「As・車道」も「As車道」も同じ（VBA の NormGroup）"""
+    return norm(v).replace("\u30fb", "")
+
+
+def kara_rows(wb, sn):
+    """●殻運搬処理 の行を集める。[(摘要, 数量の列, 行), …]（VBA の KaraRows）"""
+    key = ("KARA", sn)
+    if key in _cache:
+        return _cache[key]
+    _cache[key] = None
+    if sn not in wb.sheetnames:
+        return None
+    ws = wb[sn]
+    sect = 0
+    for r in range(1, 61):
+        for c in range(1, 41):
+            if norm(KARA_BLOCK) in norm(ws.cell(r, c).value):
+                sect = r
+                break
+        if sect:
+            break
+    if not sect:
+        return None
+
+    out = []
+    for r in range(sect + 1, sect + 11):
+        eq = 0
+        for c in range(1, 41):
+            v = ws.cell(r, c).value
+            if isinstance(v, str) and v.strip() == "\uff1d":
+                eq = c
+                break
+        if not eq:
+            continue
+        for c in range(1, eq):
+            t = norm(ws.cell(r, c).value)
+            if t[:2] in ("AS", "CO"):
+                out.append((norm_group(t), eq + 1, r))
+                break
+    _cache[key] = out or None
+    return _cache[key]
+
+
+def kara_ref(wb, sn, label):
+    """殻運搬の1セル分。行を探して直接参照にする（VBA の KaraRef）"""
+    rows = kara_rows(wb, sn)
+    if not rows:
+        return "", ""            # 未対応のシートは黙って飛ばす
+    want = norm_group(label)
+    if not want:
+        return "", "総括表の摘要が読めません"
+    for lab, col, r in rows:
+        if lab == want:
+            return "=" + sheet_ref(sn) + f"{gl(col)}{r}", ""
+    flat = " ".join(str(label).split())
+    return "", f"{sn} に「{flat}」の行がありません"
 
 
 def is_section_row(ws, r, first_col):
@@ -358,11 +438,17 @@ def main():
     for r in rows:
         sect = section_of(ws, r, first_col)
         istext = is_text_cell(ws, r, tc)
-        # 破砕は厚さが数値（「計」の行は触らない）、切断は区分の文字
+        grp = ""
+        # 破砕は厚さが数値（「計」の行は触らない）、切断は区分の文字、
+        # 殻運搬は厚さを使わず摘要で照合する
         if sect == SECTION_LABEL and istext:
             continue
         if sect == CUT_LABEL and not istext:
             continue
+        if sect == KARA_LABEL:
+            grp = group_label(ws, r, first_col)
+            if not grp:
+                continue
         mr, mc = merged_top(ws, r, tc)
         tr = f"${gl(mc)}{mr}"
         kd = kind_of_row(ws, r, first_col)
@@ -373,10 +459,13 @@ def main():
                 continue
             if sect == SECTION_LABEL:
                 f, note = build_sumif(wb, sn, ws.title, tr, kd)
-            else:
+            elif sect == CUT_LABEL:
                 f, note = cut_ref(wb, sn, str(ws.cell(mr, mc).value), kd)
+            else:
+                f, note = kara_ref(wb, sn, grp)
             if not f:
-                skipped.append((r, cl, note))
+                if note:
+                    skipped.append((r, cl, note))
             else:
                 written[(r, cl)] = f
                 sect_of[(r, cl)] = sect
@@ -391,7 +480,9 @@ def main():
         mr, mc = merged_top(ws, r, tc)
         thk = ws.cell(mr, mc).value
         sect = section_of(ws, r, first_col)
-        print(f"  {r:3}行 {sect:<6} 厚さ{str(thk):<9} {kind_of_row(ws, r, first_col):<5} "
+        if sect == KARA_LABEL:
+            thk = " ".join(str(group_label(ws, r, first_col)).split())
+        print(f"  {r:3}行 {sect:<6} {str(thk):<11} {kind_of_row(ws, r, first_col):<5} "
               f"→ {','.join(sorted(by_row[r], key=ci))}")
 
     print("\n=== 舗装切断工（9〜12行）の数式 ===")
@@ -411,6 +502,7 @@ def main():
     got = written.get((14, "J"), "")
     ok = got == want
     for cell, expect in (
+            ("O83", "=給水2度!AA28"), ("O87", "=給水2度!AA30"),
             ("O31", "=SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$I31,給水2度!$L$4:$N$6)"
                     "+SUMIF(給水2度!$O$4:$O$6,'総括表（土工事）'!$I31,給水2度!$P$4:$R$6)"),
             ("J10", "='試掘（舗50'!P5"), ("J12", "='試掘（舗50'!S5"),
