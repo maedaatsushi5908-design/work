@@ -14,7 +14,9 @@
   5. 関数の戻り値に直接添字を付けていないか
      （`Split(s, ",")(1)` は要素が足りないと実行時に落ちる。
       VBA の And は左が偽でも右を評価するので、個数の確認では守れない）
-  6. 全角スペースがコード行に混ざっていないか
+  6. モジュール内の手続きを、引数の数を間違えて呼んでいないか
+     （引数を1つ増やしたのに古い呼び出しが残っている、など）
+  7. 全角スペースがコード行に混ざっていないか
 
     python3 excel/docs/lint_vba.py            # src と dist をまとめて
     python3 excel/docs/lint_vba.py excel/vba/src/M_Link.bas
@@ -112,11 +114,69 @@ def proc_names(path):
     return names
 
 
+def proc_arity(path):
+    """手続き名 → (必須の数, 全部の数)。行継続をつないでから数える"""
+    out, buf = {}, ""
+    for raw in open(path, encoding="utf-8"):
+        code = strip_literals(raw.strip())
+        if not code:
+            continue
+        buf = (buf + " " + code).strip() if buf else code
+        if buf.endswith("_"):
+            buf = buf[:-1]
+            continue
+        line, buf = buf, ""
+        if re.search(r"\bDeclare\b", line, re.I):
+            continue
+        m = PROC_NAME.match(line)
+        if not m:
+            continue
+        p = line.find("(", m.end() - len(m.group(1)))
+        if p < 0:
+            out[m.group(1).lower()] = (0, 0)
+            continue
+        depth, j = 0, p
+        while j < len(line):
+            if line[j] == "(":
+                depth += 1
+            elif line[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        inner = line[p + 1:j].strip()
+        if not inner:
+            out[m.group(1).lower()] = (0, 0)
+            continue
+        args = split_args(inner)
+        need = sum(1 for a in args if not re.match(r"^\s*(Optional|ParamArray)\b", a, re.I))
+        out[m.group(1).lower()] = (need, len(args))
+    return out
+
+
+def split_args(s):
+    """かっこの中のカンマだけで区切る"""
+    out, depth, cur = [], 0, ""
+    for ch in s:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    out.append(cur)
+    return [a for a in out if a.strip()]
+
+
 def check(path):
     problems = []
     depth = 0
     seen_proc = False
     procs = proc_names(path)
+    arity = proc_arity(path)
     for ln, raw in enumerate(open(path, encoding="utf-8"), 1):
         line = raw.rstrip("\n")
         stripped = line.strip()
@@ -152,6 +212,15 @@ def check(path):
                     (ln, f"For Each の変数が手続きと同じ名前: {name}", code[:78])
                 )
 
+        for name, args in calls_in(code, arity):
+            need, total = arity[name.lower()]
+            if not (need <= args <= total):
+                problems.append(
+                    (ln, f"{name}() の引数が {args} 個（この手続きは"
+                         + (f" {need} 個" if need == total else f" {need}〜{total} 個") + "）",
+                     code[:78])
+                )
+
         for m in CALL_INDEX.finditer(code):
             problems.append(
                 (ln, f"{m.group(1)}() の戻り値に直接添字 ({m.group(2)})"
@@ -179,6 +248,35 @@ def check(path):
     if depth != 0:
         problems.append((0, f"Sub/Function の開始と End の数が合わない（差 {depth}）", ""))
     return problems
+
+
+CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+
+
+def calls_in(code, arity):
+    """モジュール内の手続きの呼び出しと、渡している引数の数を返す"""
+    out = []
+    if PROC_NAME.match(code):
+        return out                     # 宣言の行そのものは見ない
+    for m in CALL_RE.finditer(code):
+        name = m.group(1)
+        if name.lower() not in arity:
+            continue
+        p = m.end() - 1
+        depth, j = 0, p
+        while j < len(code):
+            if code[j] == "(":
+                depth += 1
+            elif code[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if j >= len(code):
+            continue                   # かっこが閉じていない（行継続）ので数えない
+        inner = code[p + 1:j].strip()
+        out.append((name, len(split_args(inner)) if inner else 0))
+    return out
 
 
 def main(paths):

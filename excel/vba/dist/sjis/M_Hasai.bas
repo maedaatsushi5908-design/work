@@ -101,14 +101,18 @@ Private Const CUT_BLOCK As String = "□舗装切断工"
 Private Const TORI_BLOCK As String = "□舗装版取壊工"
 Private Const TORI_KIND As String = "As"
 
-' 殻運搬（現場→処分地）。総括表の 82～95行。
-' 「殻運搬」は行き先で3つに分かれる（現場→仮置場／現場→処分地／
-' 仮置場→処分地）ので、工種名だけでは決まらない。副見出しで見分ける。
+' 殻運搬まわり。「殻運搬」は行き先で分かれる（現場→仮置場／現場→処分地／
+' 積込み／仮置場→処分地）ので、工種名だけでは決まらない。副見出しで見分ける。
+'
+'   工種名 > 副見出しに含む語（＋区切り） > 転記元のブロック見出し
+'
 ' 「～」は文字コードが揺れるので使わず、両端の語で照合する。
+' 仮置場→処分地 は転記元が無いので入れていない（触らない）。
 Private Const KARA_LABEL As String = "殻運搬"
-Private Const KARA_SUB1 As String = "現場"
-Private Const KARA_SUB2 As String = "処分地"
-Private Const KARA_BLOCK As String = "●殻運搬処理"
+Private Const KARA_MAP As String = _
+    "殻運搬>現場+仮置場>□As殻Co殻運搬（|" & _
+    "殻運搬>現場+処分地>●殻運搬処理|" & _
+    "殻運搬>積込み>●仮置土積込工"
 
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
@@ -268,29 +272,40 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
             ' 入れたとき、そのまま数量が出るようにするため。
             ' 舗装切断工は厚さが区分の文字（t≦15㎝）なので、文字でよい。
             ' 殻運搬は厚さの欄を使わず、摘要（As・車道）で照合する。
-            Dim ok As Boolean, grp As String
-            grp = ""
+            Dim ok As Boolean, grp As String, anchor As String
+            grp = "": anchor = ""
             If sect = SECTION_LABEL Then
                 ok = Not IsTextCell(thkCell)
             ElseIf sect = CUT_LABEL Then
                 ok = IsTextCell(thkCell)
             Else
+                ' 摘要は As / Co のある欄。無い行（舗装版破砕 など）は空のまま
                 grp = GroupLabel(ws, r, firstCol)
-                ok = (Len(grp) > 0)
+                anchor = KaraAnchor(ws, r, firstCol)
+                ok = (Len(anchor) > 0)
             End If
 
-            If ok And Len(kind) > 0 Then
+            ' 殻運搬は種別（As/Co）の欄が無い行があるので、そこは問わない
+            If sect <> KARA_LABEL And Len(kind) = 0 Then ok = False
+
+            If ok Then
                 thkRef = "$" & ColLetter(thkCell.Column) & thkCell.Row
                 For i = 0 To nCol - 1
                     Set cel = ws.Cells(r, ColNum(cols(i)))
-                    If IsInputCell(cel) Then
+                    Dim isTarget As Boolean
+                    If sect = KARA_LABEL Then
+                        isTarget = IsSubCell(cel)     ' 殻運搬は薄橙も入力セル
+                    Else
+                        isTarget = IsInputCell(cel)
+                    End If
+                    If isTarget Then
                         note = ""
                         If sect = SECTION_LABEL Then
                             f = BuildSumif(srcs(i), ws.Name, thkRef, kind, note)
                         ElseIf sect = CUT_LABEL Then
                             f = CutRef(srcs(i), CStr(thkCell.Text), kind, note)
                         Else
-                            f = KaraRef(srcs(i), grp, note)
+                            f = KaraRef(srcs(i), anchor, grp, note)
                         End If
                         If Len(f) = 0 Then
                             ' 理由の無い空は「その工種がまだ未対応」というだけ。
@@ -747,9 +762,10 @@ Private Function BlockNote(ByVal sn As String) As String
     Else
         h = "★なし"
     End If
-    Dim kk As String
+    Dim kk As Long
     BlockNote = "破砕" & h & "  切断" & Where(sn, CUT_BLOCK)
-    If KaraRows(sn, kk) Then BlockNote = BlockNote & "  殻運搬" & (UBound(Split(kk, "|")) + 1) & "行"
+    kk = KaraBlockCount(sn)
+    If kk > 0 Then BlockNote = BlockNote & "  殻運搬" & kk & "種"
 End Function
 
 Private Function Where(ByVal sn As String, ByVal anchor As String) As String
@@ -854,19 +870,17 @@ End Function
 ' ・ を落として突き合わせる。厚さや区分（人力・15㎝以下）の別は
 ' 転記元に無いので、どの行に入れるかは黄色の塗り分けに従う。
 '------------------------------------------------------------------
-Private Function KaraRef(ByVal sn As String, ByVal label As String, _
-                         ByRef note As String) As String
-    Dim list_ As String, p As Variant, a As Variant, want As String
+Private Function KaraRef(ByVal sn As String, ByVal anchor As String, _
+                         ByVal label As String, ByRef note As String) As String
+    Dim list_ As String, p As Variant, a As Variant
+    Dim want As String, lab As String, hit As String
 
     ' ブロックの無いシートは、この工種がまだ未対応というだけなので黙って飛ばす
-    If Not KaraRows(sn, list_) Then Exit Function
+    If Not KaraRows(sn, anchor, list_) Then Exit Function
 
     want = NormGroup(label)
-    If Len(want) = 0 Then
-        note = "総括表の摘要が読めません"
-        Exit Function
-    End If
 
+    ' 1. 摘要とラベルがそのまま一致する行（As・車道 → As車道）
     For Each p In Split(list_, "|")
         a = Split(CStr(p), ",")
         If CStr(a(0)) = want Then
@@ -874,6 +888,27 @@ Private Function KaraRef(ByVal sn As String, ByVal label As String, _
             Exit Function
         End If
     Next p
+
+    ' 2. ラベルが摘要の頭に一致する行（As（仮置土） → As）
+    For Each p In Split(list_, "|")
+        a = Split(CStr(p), ",")
+        lab = CStr(a(0))
+        If Len(lab) > 0 And Left$(want, Len(lab)) = lab Then
+            KaraRef = "=" & SheetRef(sn) & ColLetter(CLng(a(1))) & CStr(a(2))
+            Exit Function
+        End If
+    Next p
+
+    ' 3. 摘要に As / Co が無い行（舗装版破砕 など）は、種別で分かれて
+    '    いないということなので、ブロックの先頭行を採る
+    If Left$(want, 2) <> "AS" And Left$(want, 2) <> "CO" Then
+        Dim head_ As Variant
+        head_ = Split(list_, "|")
+        a = Split(CStr(head_(0)), ",")
+        KaraRef = "=" & SheetRef(sn) & ColLetter(CLng(a(1))) & CStr(a(2))
+        Exit Function
+    End If
+
     note = sn & " に「" & Flat(label) & "」の行がありません"
 End Function
 
@@ -884,12 +919,25 @@ Private Function Flat(ByVal v As Variant) As String
     Flat = Trim$(Replace(t, "  ", " "))
 End Function
 
-' ●殻運搬処理 の行を集める。「摘要,数量の列,行」を縦棒で並べて返す
-Private Function KaraRows(ByVal sn As String, ByRef list_ As String) As Boolean
+' そのシートで見つかった殻運搬まわりのブロックの数
+Private Function KaraBlockCount(ByVal sn As String) As Long
+    Dim e As Variant, f As Variant, list_ As String, n As Long
+    For Each e In Split(KARA_MAP, "|")
+        f = Split(CStr(e), ">")
+        If UBound(f) >= 2 Then
+            If KaraRows(sn, CStr(f(2)), list_) Then n = n + 1
+        End If
+    Next e
+    KaraBlockCount = n
+End Function
+
+' 見出しの下にある「＝」の行を集める。「摘要,数量の列,行」を縦棒で並べて返す
+Private Function KaraRows(ByVal sn As String, ByVal anchor As String, _
+                          ByRef list_ As String) As Boolean
     Dim ws As Worksheet, r As Long, c As Long, sect As Long
     Dim key As String, eqCol As Long, lab As String, t As String
 
-    key = "KARA|" & sn
+    key = "KARA|" & anchor & "|" & sn
     If mBlock Is Nothing Then Set mBlock = CreateObject("Scripting.Dictionary")
     If mBlock.Exists(key) Then
         list_ = mBlock(key)
@@ -903,7 +951,7 @@ Private Function KaraRows(ByVal sn As String, ByRef list_ As String) As Boolean
 
     For r = 1 To 60
         For c = 1 To 40
-            If InStr(Norm(ws.Cells(r, c).Value), Norm(KARA_BLOCK)) > 0 Then
+            If InStr(Norm(ws.Cells(r, c).Value), Norm(anchor)) > 0 Then
                 sect = r
                 Exit For
             End If
@@ -912,7 +960,17 @@ Private Function KaraRows(ByVal sn As String, ByRef list_ As String) As Boolean
     Next r
     If sect = 0 Then Exit Function
 
-    For r = sect + 1 To sect + 10
+    For r = sect + 1 To sect + 12
+        ' 次のブロックの見出し（□ や ●）が出たらそこまで
+        For c = 1 To 40
+            t = Norm(ws.Cells(r, c).Value)
+            If InStr(t, ChrW(&H25A1)) > 0 Or InStr(t, ChrW(&H25CF)) > 0 Then
+                r = sect + 99
+                Exit For
+            End If
+        Next c
+        If r > sect + 90 Then Exit For
+
         eqCol = 0
         For c = 1 To 40
             ' ＝（全角イコール）。文字コードで書いて取り違えを防ぐ
@@ -922,12 +980,19 @@ Private Function KaraRows(ByVal sn As String, ByRef list_ As String) As Boolean
             End If
         Next c
         If eqCol > 0 Then
+            ' 摘要は「＝」から左へ戻って最初に出てくる文字。
+            ' かっこ・ハイフン・数式・数値は飛ばす。左端から探すと
+            ' 行見出し（(C) 舗装数量 など）を拾ってしまうため。
             lab = ""
-            For c = 1 To eqCol - 1
-                t = Norm(ws.Cells(r, c).Value)
-                If Left$(t, 2) = "AS" Or Left$(t, 2) = "CO" Then
-                    lab = NormGroup(t)
-                    Exit For
+            For c = eqCol - 1 To 1 Step -1
+                If Not ws.Cells(r, c).HasFormula Then
+                    If Not IsNum(ws.Cells(r, c).Value) Then
+                        t = NormGroup(ws.Cells(r, c).Value)
+                        If Len(t) > 0 And InStr("（）()-", t) = 0 Then
+                            lab = t
+                            Exit For
+                        End If
+                    End If
                 End If
             Next c
             If Len(lab) > 0 Then
@@ -982,11 +1047,52 @@ Private Function SectionOf(ByVal ws As Worksheet, ByVal r As Long, _
         SectionOf = SECTION_LABEL
     ElseIf InStr(head, Norm(CUT_LABEL)) > 0 Then
         SectionOf = CUT_LABEL
-    ElseIf InStr(head, Norm(KARA_LABEL)) > 0 Then
-        If InStr(whole, Norm(KARA_SUB1)) > 0 And InStr(whole, Norm(KARA_SUB2)) > 0 Then
-            SectionOf = KARA_LABEL
-        End If
+    ElseIf Len(KaraAnchorOf(head, whole)) > 0 Then
+        SectionOf = KARA_LABEL
     End If
+End Function
+
+'------------------------------------------------------------------
+' 殻運搬の行なら、転記元のブロック見出しを返す。違うなら空文字
+'
+' KARA_MAP を上から順に見て、工種名が合い、副見出しの語がすべて
+' 揃った最初のものを採る。
+'------------------------------------------------------------------
+Private Function KaraAnchorOf(ByVal head As String, ByVal whole As String) As String
+    Dim e As Variant, f As Variant, w As Variant, ok As Boolean
+
+    For Each e In Split(KARA_MAP, "|")
+        f = Split(CStr(e), ">")
+        If UBound(f) >= 2 Then
+            If InStr(head, Norm(CStr(f(0)))) > 0 Then
+                ok = True
+                For Each w In Split(CStr(f(1)), "+")
+                    If InStr(whole, Norm(CStr(w))) = 0 Then ok = False
+                Next w
+                If ok Then
+                    KaraAnchorOf = CStr(f(2))
+                    Exit Function
+                End If
+            End If
+        End If
+    Next e
+End Function
+
+' 総括表の行から、転記元のブロック見出しを引く
+Private Function KaraAnchor(ByVal ws As Worksheet, ByVal r As Long, _
+                            ByVal firstCol As Long) As String
+    Dim c As Long, v As Variant, t As String, head As String, whole As String
+    For c = 1 To firstCol - 1
+        v = MergedValue(ws, r, c)
+        If Not IsEmpty(v) Then
+            t = CStr(v)
+            If Len(Trim$(t)) > 0 And Left$(t, 1) <> "=" Then
+                If Len(head) = 0 Then head = Norm(t)
+                whole = whole & Norm(t)
+            End If
+        End If
+    Next c
+    KaraAnchor = KaraAnchorOf(head, whole)
 End Function
 
 ' 殻運搬の行の摘要（As・車道 など）。As か Co の字がある欄を採る
@@ -1039,6 +1145,19 @@ Private Function KindOfRow(ByVal ws As Worksheet, ByVal r As Long, _
     KindOfRow = out
 End Function
 
+' 殻運搬の欄は黄色ではなく薄い橙（テーマ色のアクセント6）で塗ってある。
+' 黄色と同じく「ここに値が入る」という作成者の指定なので、こちらも認める。
+Private Function IsSubCell(ByVal c As Range) As Boolean
+    Dim tc As Long
+    If IsInputCell(c) Then IsSubCell = True: Exit Function
+    On Error Resume Next
+    If c.Interior.Pattern = xlNone Then Exit Function
+    tc = 0
+    tc = c.Interior.ThemeColor          ' テーマ色でなければエラー。tc は 0 のまま
+    On Error GoTo 0
+    IsSubCell = (tc = xlThemeColorAccent6)
+End Function
+
 ' 黄色く塗ってある入力セルか
 Private Function IsInputCell(ByVal c As Range) As Boolean
     On Error Resume Next
@@ -1079,7 +1198,7 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
     For i = 0 To nCol - 1
         If HasaiBlock(srcs(i), r0, r1, pairs) Then nB1 = nB1 + 1
         If FindBlock(srcs(i), CUT_BLOCK, r0, r1, pairs) Then nB2 = nB2 + 1
-        If KaraRows(srcs(i), pairs) Then nB3 = nB3 + 1
+        If KaraBlockCount(srcs(i)) > 0 Then nB3 = nB3 + 1
     Next i
 
     Diagnose = _
