@@ -12,7 +12,7 @@ excel/vba/src/          保守用。ここを直す
   M_Main.bas              01 用。照合・転記の入口
 
 excel/vba/dist/         貼り付け用。src から生成する
-  M_Hasai.bas             06 に貼る1ファイル（1147行）
+  M_Hasai.bas             06 に貼る1ファイル（1200行）
   M_Tenki.bas             01 に貼る1ファイル（1079行）
   sjis/                   同じものの Shift-JIS 版（インポート用）
 ```
