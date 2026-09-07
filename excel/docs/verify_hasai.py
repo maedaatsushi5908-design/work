@@ -44,6 +44,7 @@ GENDO_BLOCK2 = "□先行路盤（再使用）"    # 試掘（舗50 などの、
 FUKKYU_LABEL = "仮復旧"    # 「舗装仮復旧」に含まれるので完全一致で見分ける
 FUKKYU_SRC = "給水2度"
 FUKKYU_SIDE_MAP = "4=歩道|5=車道|10=車道"
+FUKKYU_BLOCK2 = "□仮復旧工"    # 仮配（舗 のもう1つの転記元（その1と同じ並び）
 INPUT_COLOR = "FFFF00"
 
 
@@ -292,19 +293,21 @@ def scan_gendo_header(ws, sect):
     return (r0, r1, mc, thk_wide, sc, merge_wide(ws, r0, sc))
 
 
-def scan_saiyou_header(ws, sect):
-    """先行路盤（再使用）の並び － その1と同じ形だが見出しが「路盤厚」で、
-    種別は As/Co ではなく1種類だけ（試掘（舗50 など・仮配（舗）（VBA の
-    ScanSaiyouHeader）。種別の欄が先頭行と同じ文字で続くところまでを行の
-    範囲とする。厚さ・合計とも幅は転記元の結合セルに合わせる（仮配（舗 は
-    2列結合、試掘は結合なしの1列）。
+def scan_saiyou_header(ws, sect, kind_header="種別・路盤厚"):
+    """その1と同じ形だが種別が As/Co の2種ではなく1種類だけ続くもの
+    （VBA の ScanSaiyouHeader）。見出しの文字は kind_header で渡す
+    （試掘（舗50 などの先行路盤（再使用）は「種別・路盤厚」、仮配（舗 の
+    仮復旧工は「種別・舗装厚」）。種別の欄が先頭行と同じ文字で続くところ
+    までを行の範囲とする。厚さ・合計とも幅は転記元の結合セルに合わせる
+    （仮配（舗 は2列結合、試掘は結合なしの1列）。2つ目の枠があっても
+    使わない。
     """
     hdr, kinds, totals = 0, [], []
     for r in range(sect + 1, sect + 4):
         kinds, totals = [], []
         for c in range(1, 61):
             v = norm(ws.cell(r, c).value)
-            if v == norm("種別・路盤厚"):
+            if v == norm(kind_header):
                 kinds.append(c)
             if v == norm("合 計"):
                 totals.append(c)
@@ -404,30 +407,67 @@ def fukkyu_side(thick):
     return ""
 
 
+def fukkyu_block2(wb, sn):
+    """仮配（舗 の仮復旧の転記元。(r0, r1, 厚さ列, 厚さ幅, 合計列, 合計幅)
+    （VBA の FukkyuBlock2）"""
+    key = ("FUKKYU2", sn)
+    if key in _cache:
+        return _cache[key]
+    _cache[key] = None
+    if sn not in wb.sheetnames:
+        return None
+    ws = wb[sn]
+    # 仮配（舗 には見出しがもう1つ（…No.2）あるので、そちらは飛ばす
+    # （gendo_block と同じ理由）
+    sect = 0
+    for r in range(1, 61):
+        for c in range(1, 61):
+            v = norm(ws.cell(r, c).value)
+            if norm(FUKKYU_BLOCK2) in v and "NO.2" not in v:
+                sect = r
+                break
+        if sect:
+            break
+    if not sect:
+        return None
+    out = scan_saiyou_header(ws, sect, "種別・舗装厚")
+    _cache[key] = out
+    return out
+
+
 def fukkyu_ref(wb, sn, tname, thk_ref, thick):
     """仮復旧（再生As）の1セル分（VBA の FukkyuRef）
 
-    転記元は舗装版破砕と同じ「車道/歩道 5号工」の枠を使うが、車道＋歩道を
+    給水2度は舗装版破砕と同じ「車道/歩道 5号工」の枠を使うが、車道＋歩道を
     足さずどちらか片方だけを使う。どちらの側かは工事ごとに違うので
-    FUKKYU_SIDE_MAP（厚さ→車道/歩道）で決める。給水2度以外はまだ対応が
-    無いので黙って見送る。
+    FUKKYU_SIDE_MAP（厚さ→車道/歩道）で決める。仮配（舗 は「□仮復旧工」
+    （その1と同じ並び、枠が2つあっても最初の1枠だけ）を使う。それ以外は
+    まだ対応が無いので黙って見送る。
     """
-    if sn != FUKKYU_SRC:
-        return "", ""
-    side = fukkyu_side(thick)
-    if not side:
-        return "", f"厚さ {thick} の車道/歩道が FUKKYU_SIDE_MAP にありません"
-    b = hasai_block(wb, sn)
+    if sn == FUKKYU_SRC:
+        side = fukkyu_side(thick)
+        if not side:
+            return "", f"厚さ {thick} の車道/歩道が FUKKYU_SIDE_MAP にありません"
+        b = hasai_block(wb, sn)
+        if not b:
+            return "", f"{sn} に {BLOCK_LABEL} のブロックがありません"
+        r0, r1, pairs = b
+        idx = 0 if side == "車道" else 1
+        if idx >= len(pairs):
+            return "", f"{sn} に {side} 側の欄がありません"
+        _, thk, tot, w = pairs[idx]
+        crit = sheet_ref(tname) + thk_ref
+        q = sheet_ref(sn)
+        return "=" + f"SUMIF({q}{rng(thk, 1, r0, r1)},{crit},{q}{rng(tot, w, r0, r1)})", ""
+
+    b = fukkyu_block2(wb, sn)
     if not b:
-        return "", f"{sn} に {BLOCK_LABEL} のブロックがありません"
-    r0, r1, pairs = b
-    idx = 0 if side == "車道" else 1
-    if idx >= len(pairs):
-        return "", f"{sn} に {side} 側の欄がありません"
-    _, thk, tot, w = pairs[idx]
+        return "", ""
+    r0, r1, thk_col, thk_wide, sum_col, sum_wide = b
     crit = sheet_ref(tname) + thk_ref
     q = sheet_ref(sn)
-    return "=" + f"SUMIF({q}{rng(thk, 1, r0, r1)},{crit},{q}{rng(tot, w, r0, r1)})", ""
+    return ("=" + f"SUMIF({q}{rng(thk_col, thk_wide, r0, r1)},{crit},"
+            f"{q}{rng(sum_col, sum_wide, r0, r1)})"), ""
 
 
 def has_exact_label(ws, r, first_col, label):
@@ -806,7 +846,9 @@ def main():
             ("J162", "=SUMIF('試掘（舗50'!$O$26:$O$31,'総括表（土工事）'!$H162,"
                      "'試掘（舗50'!$P$26:$P$31)"),
             ("P162", "=SUMIF('仮配（舗'!$R$27:$S$32,'総括表（土工事）'!$H162,"
-                     "'仮配（舗'!$T$27:$U$32)")):
+                     "'仮配（舗'!$T$27:$U$32)"),
+            ("P167", "=SUMIF('仮配（舗'!$R$36:$S$39,'総括表（土工事）'!$H167,"
+                     "'仮配（舗'!$T$36:$U$39)")):
         r = int(cell[1:])
         g = written.get((r, cell[0]), "")
         mark = "一致" if g == expect else f"違う（{g}）"

@@ -156,6 +156,12 @@ Private Const FUKKYU_LABEL As String = "仮復旧"
 Private Const FUKKYU_SRC As String = "給水2度"
 Private Const FUKKYU_SIDE_MAP As String = "4=歩道|5=車道|10=車道"
 
+' 仮配（舗 にも仮復旧の転記元がある。見出しは「□仮復旧工」、並びはその1
+' （種別・舗装厚｜合 計）と同じ形だが、枠が2つあっても最初の1枠だけを使う。
+'
+'   P167 = SUMIF('仮配（舗'!$R$36:$S$39,'総括表（土工事）'!$H167,'仮配（舗'!$T$36:$U$39)
+Private Const FUKKYU_BLOCK2 As String = "□仮復旧工"
+
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
 
@@ -648,7 +654,7 @@ Private Function GendoBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lo
             GendoBlock = True
             Exit Function
         End If
-        If ScanSaiyouHeader(ws, sect, r0, r1, thkCol, thkWide, sumCol, sumWide) Then
+        If ScanSaiyouHeader(ws, sect, "種別・路盤厚", r0, r1, thkCol, thkWide, sumCol, sumWide) Then
             mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
             GendoBlock = True
             Exit Function
@@ -705,19 +711,22 @@ Private Function ScanGendoHeader(ByVal ws As Worksheet, ByVal sect As Long, _
 End Function
 
 '------------------------------------------------------------------
-' 先行路盤（再使用）の並び － その1（種別・舗装厚｜合 計）と同じ形だが、
-' 見出しの文字が「路盤厚」で、種別は As/Co ではなく「再使用」の1種類だけ
-' （試掘（舗50 など）。
+' その1（種別・舗装厚｜合 計）と同じ形だが、種別が As/Co の2種ではなく
+' 1種類だけ続くもの。見出しの文字は kindHeader で渡す
+' （試掘（舗50 などの先行路盤（再使用）は「種別・路盤厚」、
+' 　仮配（舗 の仮復旧工は「種別・舗装厚」）。
 '
 '   □先行路盤（再使用）
 '   種別・路盤厚 | 合 計
 '   再使用   10   |  0.6
 '
-' 「種別・路盤厚」の1つ右が厚さ、その右で最初に来る「合 計」が数量。
+' 「種別・◯◯厚」の1つ右が厚さ、その右で最初に来る「合 計」が数量。
 ' 種別の欄が同じ文字（先頭行の値）で続くところまでを行の範囲とする
 ' （As/Co のような決まった語ではないので、続く限り読む）。
+' 2つ目の種別・合計の枠があっても使わない（最初の1枠だけで足りる）。
 '------------------------------------------------------------------
 Private Function ScanSaiyouHeader(ByVal ws As Worksheet, ByVal sect As Long, _
+                                  ByVal kindHeader As String, _
                                   ByRef r0 As Long, ByRef r1 As Long, _
                                   ByRef thkCol As Long, ByRef thkWide As Long, _
                                   ByRef sumCol As Long, ByRef sumWide As Long) As Boolean
@@ -729,7 +738,7 @@ Private Function ScanSaiyouHeader(ByVal ws As Worksheet, ByVal sect As Long, _
         kinds = "": totals = ""
         For c = 1 To 60
             v = Norm(ws.Cells(r, c).Value)
-            If v = Norm("種別・路盤厚") Then kinds = kinds & c & ","
+            If v = Norm(kindHeader) Then kinds = kinds & c & ","
             If v = Norm("合 計") Then totals = totals & c & ","
         Next c
         If Len(kinds) > 0 And Len(totals) > 0 Then
@@ -782,31 +791,89 @@ Private Function FukkyuRef(ByVal sn As String, ByVal tName As String, _
                            ByRef note As String) As String
     Dim r0 As Long, r1 As Long, pairs As String, side As String
     Dim arr As Variant, a As Variant, crit As String, idx As Long
+    Dim thkCol As Long, thkWide As Long, sumCol As Long, sumWide As Long
 
-    ' 給水2度以外はまだ対応が無いので黙って見送る（既存の手入力の式を残す）
-    If sn <> FUKKYU_SRC Then Exit Function
+    If sn = FUKKYU_SRC Then
+        ' 給水2度は車道/歩道どちらかの枠（舗装版破砕と同じ枠）を使う
+        side = FukkyuSide(thick)
+        If Len(side) = 0 Then
+            note = "厚さ " & thick & " の車道/歩道が FUKKYU_SIDE_MAP にありません"
+            Exit Function
+        End If
 
-    side = FukkyuSide(thick)
-    If Len(side) = 0 Then
-        note = "厚さ " & thick & " の車道/歩道が FUKKYU_SIDE_MAP にありません"
+        If Not HasaiBlock(sn, r0, r1, pairs) Then
+            note = sn & " に " & BLOCK_LABEL & " のブロックがありません"
+            Exit Function
+        End If
+
+        arr = Split(pairs, "|")
+        idx = IIf(side = "車道", 0, 1)
+        If idx > UBound(arr) Then
+            note = sn & " に " & side & " 側の欄がありません"
+            Exit Function
+        End If
+        a = Split(CStr(arr(idx)), ",")
+
+        crit = SheetRef(tName) & thkRef
+        FukkyuRef = "=" & SumifTerm(sn, CLng(a(1)), CLng(a(2)), CLng(a(3)), r0, r1, crit)
         Exit Function
     End If
 
-    If Not HasaiBlock(sn, r0, r1, pairs) Then
-        note = sn & " に " & BLOCK_LABEL & " のブロックがありません"
+    ' 仮配（舗 など：「□仮復旧工」のその1型ブロック。枠が2つあっても
+    ' 最初の1枠だけを使う（FukkyuBlock2）。ブロックが無いシートは
+    ' まだ対応が無いというだけなので黙って見送る
+    If FukkyuBlock2(sn, r0, r1, thkCol, thkWide, sumCol, sumWide) Then
+        crit = SheetRef(tName) & thkRef
+        FukkyuRef = "=" & SumifTerm(sn, thkCol, sumCol, sumWide, r0, r1, crit, thkWide)
+    End If
+End Function
+
+' 仮配（舗 の仮復旧の転記元ブロック位置。同じシートを何度も探さないよう覚えておく
+Private Function FukkyuBlock2(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Long, _
+                              ByRef thkCol As Long, ByRef thkWide As Long, _
+                              ByRef sumCol As Long, ByRef sumWide As Long) As Boolean
+    Dim ws As Worksheet, r As Long, c As Long, sect As Long
+    Dim key As String, cached As String, a As Variant
+
+    key = "FUKKYU2|" & sn
+    If mBlock Is Nothing Then Set mBlock = CreateObject("Scripting.Dictionary")
+    If mBlock.Exists(key) Then
+        cached = mBlock(key)
+        If Len(cached) = 0 Then Exit Function
+        a = Split(cached, ";")
+        If UBound(a) < 5 Then Exit Function
+        r0 = CLng(a(0)): r1 = CLng(a(1))
+        thkCol = CLng(a(2)): thkWide = CLng(a(3))
+        sumCol = CLng(a(4)): sumWide = CLng(a(5))
+        FukkyuBlock2 = True
+        Exit Function
+    End If
+    mBlock(key) = ""
+
+    Set ws = FindSheet(sn)
+    If ws Is Nothing Then Exit Function
+
+    ' 仮配（舗 には見出しがもう1つ（…No.2）あるので、そちらは飛ばす
+    ' （GendoBlock と同じ理由）
+    Dim v As String
+    For r = 1 To 60
+        For c = 1 To 60
+            v = Norm(ws.Cells(r, c).Value)
+            If InStr(v, Norm(FUKKYU_BLOCK2)) > 0 And InStr(v, "NO.2") = 0 Then
+                sect = r
+                Exit For
+            End If
+        Next c
+        If sect > 0 Then Exit For
+    Next r
+    If sect = 0 Then Exit Function
+
+    If Not ScanSaiyouHeader(ws, sect, "種別・舗装厚", r0, r1, thkCol, thkWide, sumCol, sumWide) Then
         Exit Function
     End If
 
-    arr = Split(pairs, "|")
-    idx = IIf(side = "車道", 0, 1)
-    If idx > UBound(arr) Then
-        note = sn & " に " & side & " 側の欄がありません"
-        Exit Function
-    End If
-    a = Split(CStr(arr(idx)), ",")
-
-    crit = SheetRef(tName) & thkRef
-    FukkyuRef = "=" & SumifTerm(sn, CLng(a(1)), CLng(a(2)), CLng(a(3)), r0, r1, crit)
+    mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
+    FukkyuBlock2 = True
 End Function
 
 ' 厚さ(cm) → 車道/歩道。号工の候補一覧は車道・歩道で別々に詰めて並ぶため、
