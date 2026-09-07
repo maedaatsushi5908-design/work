@@ -38,6 +38,8 @@ KARA_LABEL = "殻運搬"
 KARA_MAP = ("殻運搬>現場+仮置場>□As殻Co殻運搬（|"
             "殻運搬>現場+処分地>●殻運搬処理|"
             "殻運搬>積込み>●仮置土積込工")
+GENDO_LABEL = "先行路盤（発生土）"    # 左端は「舗装仮復旧」で共通。副見出しで見分ける
+GENDO_BLOCK = "□先行路盤（発生土）"
 INPUT_COLOR = "FFFF00"
 
 
@@ -252,6 +254,92 @@ def build_sumif(wb, sn, tname, thk_ref, kind):
     return "=" + "+".join(terms), note
 
 
+def scan_gendo_header(ws, sect):
+    """並び その3 －「路盤厚｜面 積」が並ぶ形（給水2度・先行路盤（発生土））
+
+    厚さ欄（路盤厚）が結合で広く、合計欄（面積）は1列。舗装版破砕とは逆。
+    見出しが複数回現れても最初の1枠だけを使う。
+    """
+    hdr, tc, sc = 0, 0, 0
+    for r in range(sect, sect + 4):
+        tc = sc = 0
+        for c in range(1, 61):
+            v = norm(ws.cell(r, c).value)
+            if not tc and v == norm("路盤厚"):
+                tc = c
+            if not sc and v == norm("面 積"):
+                sc = c
+        if tc and sc:
+            hdr = r
+            break
+    if not hdr:
+        return None
+
+    r0, r1 = hdr + 1, hdr
+    for r in range(r0, r0 + 41):
+        if ws.cell(r, tc).value is None:
+            break
+        r1 = r
+    if r1 < r0:
+        return None
+
+    mr, mc = merged_top(ws, r0, tc)
+    thk_wide = merge_wide(ws, mr, mc)
+    return (r0, r1, mc, thk_wide, sc, merge_wide(ws, r0, sc))
+
+
+def gendo_block(wb, sn):
+    """先行路盤（発生土）の転記元。(r0, r1, 厚さ列, 厚さ幅, 合計列, 合計幅)（VBA の GendoBlock）"""
+    key = ("GENDO", sn)
+    if key in _cache:
+        return _cache[key]
+    _cache[key] = None
+    if sn not in wb.sheetnames:
+        return None
+    ws = wb[sn]
+    sect = 0
+    for r in range(1, 61):
+        for c in range(1, 61):
+            if norm(GENDO_BLOCK) in norm(ws.cell(r, c).value):
+                sect = r
+                break
+        if sect:
+            break
+    if not sect:
+        return None
+    out = scan_gendo_header(ws, sect)
+    _cache[key] = out
+    return out
+
+
+def gendo_ref(wb, sn, tname, thk_ref):
+    """先行路盤（発生土）の1セル分（VBA の GendoRef）
+
+    ブロックの無いシート（試掘・管工など）は、この工種がまだ未対応という
+    だけなので黙って飛ばす（殻運搬の kara_ref と同じ扱い。見送りには数えない）
+    """
+    b = gendo_block(wb, sn)
+    if not b:
+        return "", ""
+    r0, r1, thk_col, thk_wide, sum_col, sum_wide = b
+    crit = sheet_ref(tname) + thk_ref
+    q = sheet_ref(sn)
+    return ("=" + f"SUMIF({q}{rng(thk_col, thk_wide, r0, r1)},{crit},"
+            f"{q}{rng(sum_col, sum_wide, r0, r1)})"), ""
+
+
+def thick_cell_for(ws, r, tc, sect):
+    """厚さの入っているセル (row, col) を返す。先行路盤（発生土）は I ではなく
+    H にあるので、厚さ列の1つ左で数値が見つかった列を厚さ欄とみなす（VBA と同じ）"""
+    if sect == GENDO_LABEL:
+        for cc in range(tc - 1, 0, -1):
+            tr0, tc0 = merged_top(ws, r, cc)
+            if is_num(ws.cell(tr0, tc0).value):
+                return tr0, tc0
+        return None
+    return merged_top(ws, r, tc)
+
+
 def cut_ref(wb, sn, label, kind):
     """舗装切断工の1セル分。行を探して直接参照にする（VBA の CutRef）"""
     b = find_block(wb, sn, CUT_BLOCK)
@@ -291,6 +379,10 @@ def section_of(ws, r, first_col):
         return SECTION_LABEL
     if norm(CUT_LABEL) in head:
         return CUT_LABEL
+    if norm(GENDO_LABEL) in whole:
+        # 左端（B列）は「舗装仮復旧」で他の資材とも共通。副見出し
+        # （C列）に「先行路盤（発生土）」があるかで見分ける
+        return GENDO_LABEL
     if kara_anchor_of(head, whole):
         return KARA_LABEL
     return ""
@@ -504,12 +596,14 @@ def main():
             anchor = kara_anchor(ws, r, first_col)
             if not anchor:
                 continue
-        mr0, mc0 = merged_top(ws, r, tc)
-        mr, mc = merged_top(ws, r, tc)
+        cell = thick_cell_for(ws, r, tc, sect)
+        if cell is None:
+            continue
+        mr, mc = cell
         tr = f"${gl(mc)}{mr}"
         kd = kind_of_row(ws, r, first_col)
-        # 殻運搬は種別（As/Co）の欄が無い行があるので、そこは問わない
-        if not kd and sect != KARA_LABEL:
+        # 殻運搬・先行路盤（発生土）は種別（As/Co）の欄が無いので、そこは問わない
+        if not kd and sect not in (KARA_LABEL, GENDO_LABEL):
             continue
         for cl, sn in pairs:
             ok = is_sub_cell(ws, r, ci(cl)) if sect == KARA_LABEL \
@@ -520,6 +614,8 @@ def main():
                 f, note = build_sumif(wb, sn, ws.title, tr, kd)
             elif sect == CUT_LABEL:
                 f, note = cut_ref(wb, sn, str(ws.cell(mr, mc).value), kd)
+            elif sect == GENDO_LABEL:
+                f, note = gendo_ref(wb, sn, ws.title, tr)
             else:
                 f, note = kara_ref(wb, sn, anchor, grp)
             if not f:
@@ -536,9 +632,9 @@ def main():
     for (r, cl) in written:
         by_row[r].append(cl)
     for r in sorted(by_row):
-        mr, mc = merged_top(ws, r, tc)
-        thk = ws.cell(mr, mc).value
         sect = section_of(ws, r, first_col)
+        mr, mc = thick_cell_for(ws, r, tc, sect)
+        thk = ws.cell(mr, mc).value
         if sect == KARA_LABEL:
             thk = " ".join(str(group_label(ws, r, first_col)).split())
         print(f"  {r:3}行 {sect:<6} {str(thk):<11} {kind_of_row(ws, r, first_col):<5} "
@@ -556,6 +652,11 @@ def main():
             if (r, cl) in written:
                 print(f"  {cl}{r}: {written[(r, cl)]}")
 
+    print("\n=== 先行路盤（発生土）162〜171行 O の数式 ===")
+    for r in range(162, 172):
+        if (r, "O") in written:
+            print(f"  O{r}: {written[(r, 'O')]}")
+
     want = ("=SUMIF('試掘（舗50'!$O$11:$O$17,'総括表（土工事）'!$I14,"
             "'試掘（舗50'!$P$11:$P$17)")
     got = written.get((14, "J"), "")
@@ -568,7 +669,12 @@ def main():
                     "+SUMIF(給水2度!$O$4:$O$6,'総括表（土工事）'!$I31,給水2度!$P$4:$R$6)"),
             ("J10", "='試掘（舗50'!P5"), ("J12", "='試掘（舗50'!S5"),
                          ("J9", "='試掘（舗50'!P4"), ("M11", "='試掘（舗400'!S4"),
-                         ("R9", "='管工（舗50'!T10"), ("S11", "='管工（舗75'!X10")):
+                         ("R9", "='管工（舗50'!T10"), ("S11", "='管工（舗75'!X10"),
+            ("O162", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H162,給水2度!$X$4:$X$6)"),
+            ("O163", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H163,給水2度!$X$4:$X$6)"),
+            ("O164", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H164,給水2度!$X$4:$X$6)"),
+            ("O165", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H165,給水2度!$X$4:$X$6)"),
+            ("O166", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H166,給水2度!$X$4:$X$6)")):
         r = int(cell[1:])
         g = written.get((r, cell[0]), "")
         mark = "一致" if g == expect else f"違う（{g}）"

@@ -103,6 +103,19 @@ Private Const KARA_MAP As String = _
     "殻運搬>現場+処分地>●殻運搬処理|" & _
     "殻運搬>積込み>●仮置土積込工"
 
+' 先行路盤（発生土）。総括表の左端は「舗装仮復旧」で、同じ材料欄に
+' 先行路盤（発生土 以外）・仮復旧（再生Asなど）も並ぶので、副見出し
+' 「先行路盤（発生土）」があるかどうかで見分ける。
+' 種別（As/Co）の欄が無く、厚さは I ではなく H に入る（厚さ列の1つ左で
+' 数値が見つかった列を厚さ欄とみなす）。
+'
+'   =SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H162,給水2度!$X$4:$X$6)
+'
+' 転記元（給水2度）は「路盤厚｜面 積」の並びで、舗装版破砕と逆に
+' 厚さ欄の方が結合で広く（U:W）、合計欄（面積・X）が1列。
+Private Const GENDO_LABEL As String = "先行路盤（発生土）"
+Private Const GENDO_BLOCK As String = "□先行路盤（発生土）"
+
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
 
@@ -258,12 +271,21 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
             ' 入れたとき、そのまま数量が出るようにするため。
             ' 舗装切断工は厚さが区分の文字（t≦15㎝）なので、文字でよい。
             ' 殻運搬は厚さの欄を使わず、摘要（As・車道）で照合する。
+            ' 先行路盤（発生土）は厚さが I ではなく H にある。種別（As/Co）の
+            ' 欄が無いので、厚さ列の1つ左で数値が見つかった列を厚さ欄とみなす。
             Dim ok As Boolean, grp As String, anchor As String
             grp = "": anchor = ""
             If sect = SECTION_LABEL Then
                 ok = Not IsTextCell(thkCell)
             ElseIf sect = CUT_LABEL Then
                 ok = IsTextCell(thkCell)
+            ElseIf sect = GENDO_LABEL Then
+                Dim gCol As Long
+                For gCol = thkCol - 1 To 1 Step -1
+                    Set thkCell = ws.Cells(r, gCol).MergeArea.Cells(1, 1)
+                    If IsNum(thkCell.Value) Then Exit For
+                Next gCol
+                ok = (gCol >= 1) And IsNum(thkCell.Value)
             Else
                 ' 摘要は As / Co のある欄。無い行（舗装版破砕 など）は空のまま
                 grp = GroupLabel(ws, r, firstCol)
@@ -271,8 +293,8 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                 ok = (Len(anchor) > 0)
             End If
 
-            ' 殻運搬は種別（As/Co）の欄が無い行があるので、そこは問わない
-            If sect <> KARA_LABEL And Len(kind) = 0 Then ok = False
+            ' 殻運搬・先行路盤（発生土）は種別（As/Co）の欄が無いので、そこは問わない
+            If sect <> KARA_LABEL And sect <> GENDO_LABEL And Len(kind) = 0 Then ok = False
 
             If ok Then
                 thkRef = "$" & ColLetter(thkCell.Column) & thkCell.Row
@@ -290,6 +312,8 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                             f = BuildSumif(srcs(i), ws.Name, thkRef, kind, note)
                         ElseIf sect = CUT_LABEL Then
                             f = CutRef(srcs(i), CStr(thkCell.Text), kind, note)
+                        ElseIf sect = GENDO_LABEL Then
+                            f = GendoRef(srcs(i), ws.Name, thkRef, note)
                         Else
                             f = KaraRef(srcs(i), anchor, grp, note)
                         End If
@@ -494,11 +518,123 @@ End Function
 
 Private Function SumifTerm(ByVal sn As String, ByVal thkCol As Long, ByVal sumCol As Long, _
                            ByVal sumWide As Long, ByVal r0 As Long, ByVal r1 As Long, _
-                           ByVal crit As String) As String
+                           ByVal crit As String, Optional ByVal thkWide As Long = 1) As String
     Dim q As String
     q = SheetRef(sn)
-    SumifTerm = "SUMIF(" & q & Rng(thkCol, 1, r0, r1) & "," & crit & "," & _
+    SumifTerm = "SUMIF(" & q & Rng(thkCol, thkWide, r0, r1) & "," & crit & "," & _
                 q & Rng(sumCol, sumWide, r0, r1) & ")"
+End Function
+
+'------------------------------------------------------------------
+' 先行路盤（発生土）の1セル分。
+'
+'   =SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H162,給水2度!$X$4:$X$6)
+'
+' 転記元は「路盤厚｜面 積」の並び（給水2度）。厚さ欄（路盤厚）が
+' 結合で広く（U:W）、合計欄（面積）は1列（X）。舗装版破砕とは逆
+' （あちらは厚さが1列、合計側が結合で広い）。種別（As/Co）は無いので
+' 枠は1つだけ、たし算もしない。
+'------------------------------------------------------------------
+Private Function GendoRef(ByVal sn As String, ByVal tName As String, _
+                          ByVal thkRef As String, ByRef note As String) As String
+    Dim r0 As Long, r1 As Long, thkCol As Long, thkWide As Long
+    Dim sumCol As Long, sumWide As Long, crit As String
+
+    ' ブロックの無いシート（試掘・管工など）は、この工種がまだ未対応というだけ
+    ' なので黙って飛ばす（殻運搬の KaraRef と同じ扱い。見送りには数えない）
+    If Not GendoBlock(sn, r0, r1, thkCol, thkWide, sumCol, sumWide) Then Exit Function
+
+    crit = SheetRef(tName) & thkRef
+    GendoRef = "=" & SumifTerm(sn, thkCol, sumCol, sumWide, r0, r1, crit, thkWide)
+End Function
+
+' 先行路盤（発生土）の転記元ブロック位置。同じシートを何度も探さないよう覚えておく
+Private Function GendoBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Long, _
+                            ByRef thkCol As Long, ByRef thkWide As Long, _
+                            ByRef sumCol As Long, ByRef sumWide As Long) As Boolean
+    Dim ws As Worksheet, r As Long, c As Long, sect As Long
+    Dim key As String, cached As String, a As Variant
+
+    key = "GENDO|" & sn
+    If mBlock Is Nothing Then Set mBlock = CreateObject("Scripting.Dictionary")
+    If mBlock.Exists(key) Then
+        cached = mBlock(key)
+        If Len(cached) = 0 Then Exit Function
+        a = Split(cached, ";")
+        If UBound(a) < 5 Then Exit Function
+        r0 = CLng(a(0)): r1 = CLng(a(1))
+        thkCol = CLng(a(2)): thkWide = CLng(a(3))
+        sumCol = CLng(a(4)): sumWide = CLng(a(5))
+        GendoBlock = True
+        Exit Function
+    End If
+    mBlock(key) = ""
+
+    Set ws = FindSheet(sn)
+    If ws Is Nothing Then Exit Function
+
+    For r = 1 To 60
+        For c = 1 To 60
+            If InStr(Norm(ws.Cells(r, c).Value), Norm(GENDO_BLOCK)) > 0 Then
+                sect = r
+                Exit For
+            End If
+        Next c
+        If sect > 0 Then Exit For
+    Next r
+    If sect = 0 Then Exit Function
+
+    If Not ScanGendoHeader(ws, sect, r0, r1, thkCol, thkWide, sumCol, sumWide) Then Exit Function
+
+    mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
+    GendoBlock = True
+End Function
+
+'------------------------------------------------------------------
+' 並び その3 －「路盤厚｜面 積」が並ぶ形（給水2度・先行路盤（発生土））
+'
+'   路盤厚          ‖ 面 積
+'   U:W(結合) | X   ‖ Y:AA(結合) | AB   ← 2枠目はまだ使わない
+'
+' 「路盤厚」の列（結合の幅ぶん）が厚さ、その右の「面 積」が数量。
+' 行は路盤厚の欄が埋まっているところまで（予備は付けない）。
+' 見出しが複数回現れても、最初の1枠だけを使う（1つの候補一覧で足りる）。
+'------------------------------------------------------------------
+Private Function ScanGendoHeader(ByVal ws As Worksheet, ByVal sect As Long, _
+                                 ByRef r0 As Long, ByRef r1 As Long, _
+                                 ByRef thkCol As Long, ByRef thkWide As Long, _
+                                 ByRef sumCol As Long, ByRef sumWide As Long) As Boolean
+    Dim r As Long, c As Long, hdr As Long, tc As Long, sc As Long
+    Dim mc As Range
+
+    For r = sect To sect + 3
+        tc = 0: sc = 0
+        For c = 1 To 60
+            If tc = 0 And Norm(ws.Cells(r, c).Value) = Norm("路盤厚") Then tc = c
+            If sc = 0 And Norm(ws.Cells(r, c).Value) = Norm("面 積") Then sc = c
+        Next c
+        If tc > 0 And sc > 0 Then
+            hdr = r
+            Exit For
+        End If
+    Next r
+    If hdr = 0 Then Exit Function
+
+    r0 = hdr + 1
+    r1 = r0 - 1
+    For r = r0 To r0 + 40
+        If IsEmpty(ws.Cells(r, tc).Value) Then Exit For
+        r1 = r
+    Next r
+    If r1 < r0 Then Exit Function
+
+    Set mc = ws.Cells(r0, tc).MergeArea
+    thkCol = mc.Column
+    thkWide = mc.Columns.Count
+    If thkWide < 1 Then thkWide = 1
+    sumCol = sc
+    sumWide = MergeWide(ws, r0, sc)
+    ScanGendoHeader = True
 End Function
 
 ' 数式に書くシート名。Excel と同じで、囲む必要のある名前だけ ' で囲む。
@@ -752,6 +888,10 @@ Private Function BlockNote(ByVal sn As String) As String
     BlockNote = "破砕" & h & "  切断" & Where(sn, CUT_BLOCK)
     kk = KaraBlockCount(sn)
     If kk > 0 Then BlockNote = BlockNote & "  殻運搬" & kk & "種"
+    Dim gr0 As Long, gr1 As Long, gtc As Long, gtw As Long, gsc As Long, gsw As Long
+    If GendoBlock(sn, gr0, gr1, gtc, gtw, gsc, gsw) Then
+        BlockNote = BlockNote & "  先行路盤" & gr0 & "-" & gr1 & "行"
+    End If
 End Function
 
 Private Function Where(ByVal sn As String, ByVal anchor As String) As String
@@ -1033,6 +1173,10 @@ Private Function SectionOf(ByVal ws As Worksheet, ByVal r As Long, _
         SectionOf = SECTION_LABEL
     ElseIf InStr(head, Norm(CUT_LABEL)) > 0 Then
         SectionOf = CUT_LABEL
+    ElseIf InStr(whole, Norm(GENDO_LABEL)) > 0 Then
+        ' 左端（B列）は「舗装仮復旧」で他の資材とも共通。副見出し
+        ' （C列）に「先行路盤（発生土）」があるかで見分ける
+        SectionOf = GENDO_LABEL
     ElseIf Len(KaraAnchorOf(head, whole)) > 0 Then
         SectionOf = KARA_LABEL
     End If
@@ -1159,7 +1303,7 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
                           ByRef srcs() As String, ByVal nCol As Long, _
                           ByVal firstCol As Long) As String
     Dim r As Long, i As Long, lastRow As Long, thkCol As Long
-    Dim nHas As Long, nCut As Long, nKara As Long, nKind As Long, nYellow As Long
+    Dim nHas As Long, nCut As Long, nKara As Long, nGendo As Long, nKind As Long, nYellow As Long
     Dim nB1 As Long, nB2 As Long, nB3 As Long, sect As String
     Dim r0 As Long, r1 As Long, pairs As String
 
@@ -1172,10 +1316,12 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
                 nHas = nHas + 1
             ElseIf sect = CUT_LABEL Then
                 nCut = nCut + 1
+            ElseIf sect = GENDO_LABEL Then
+                nGendo = nGendo + 1
             Else
                 nKara = nKara + 1
             End If
-            If Len(KindOfRow(ws, r, firstCol)) > 0 Then nKind = nKind + 1
+            If sect = GENDO_LABEL Or Len(KindOfRow(ws, r, firstCol)) > 0 Then nKind = nKind + 1
             For i = 0 To nCol - 1
                 If IsInputCell(ws.Cells(r, ColNum(cols(i)))) Then nYellow = nYellow + 1
             Next i
@@ -1192,12 +1338,13 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
         "　" & SECTION_LABEL & " の行 … " & nHas & " 行" & vbCrLf & _
         "　" & CUT_LABEL & " の行 … " & nCut & " 行" & vbCrLf & _
         "　" & KARA_LABEL & "(現場→処分地) の行 … " & nKara & " 行" & vbCrLf & _
+        "　" & GENDO_LABEL & " の行 … " & nGendo & " 行" & vbCrLf & _
         "　厚さ列 … " & IIf(thkCol > 0, ColLetter(thkCol) & " 列", "見つからない") & vbCrLf & _
         "　種別(As/Co)が読めた行 … " & nKind & " 行" & vbCrLf & _
         "　黄色い入力セル … " & nYellow & " 個" & vbCrLf & _
         "　" & BLOCK_LABEL & " が見つかった転記元 … " & nB1 & " / " & nCol & " シート" & vbCrLf & _
         "　" & CUT_BLOCK & " が見つかった転記元 … " & nB2 & " / " & nCol & " シート" & vbCrLf & _
-        "　" & KARA_BLOCK & " が見つかった転記元 … " & nB3 & " / " & nCol & " シート" & vbCrLf & vbCrLf & _
+        "　" & KARA_LABEL & " のブロックが見つかった転記元 … " & nB3 & " / " & nCol & " シート" & vbCrLf & vbCrLf & _
         "0 になっている項目が原因です。"
 End Function
 
