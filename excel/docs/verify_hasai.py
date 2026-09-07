@@ -40,6 +40,7 @@ KARA_MAP = ("殻運搬>現場+仮置場>□As殻Co殻運搬（|"
             "殻運搬>積込み>●仮置土積込工")
 GENDO_LABEL = "先行路盤（発生土）"    # 左端は「舗装仮復旧」で共通。副見出しで見分ける
 GENDO_BLOCK = "□先行路盤（発生土）"
+GENDO_BLOCK2 = "□先行路盤（再使用）"    # 試掘（舗50 などの、もう1つの転記元
 FUKKYU_LABEL = "仮復旧"    # 「舗装仮復旧」に含まれるので完全一致で見分ける
 FUKKYU_SRC = "給水2度"
 FUKKYU_SIDE_MAP = "4=歩道|5=車道|10=車道"
@@ -291,6 +292,48 @@ def scan_gendo_header(ws, sect):
     return (r0, r1, mc, thk_wide, sc, merge_wide(ws, r0, sc))
 
 
+def scan_saiyou_header(ws, sect):
+    """先行路盤（再使用）の並び － その1と同じ形だが見出しが「路盤厚」で、
+    種別は As/Co ではなく「再使用」の1種類だけ（試掘（舗50 など）（VBA の
+    ScanSaiyouHeader）。種別の欄が先頭行と同じ文字で続くところまでを行の
+    範囲とする。
+    """
+    hdr, kinds, totals = 0, [], []
+    for r in range(sect + 1, sect + 4):
+        kinds, totals = [], []
+        for c in range(1, 61):
+            v = norm(ws.cell(r, c).value)
+            if v == norm("種別・路盤厚"):
+                kinds.append(c)
+            if v == norm("合 計"):
+                totals.append(c)
+        if kinds and totals:
+            hdr = r
+            break
+    if not hdr:
+        return None
+
+    kc = kinds[0]
+    nxt = [t for t in totals if t > kc]
+    if not nxt:
+        return None
+    sc = min(nxt)
+
+    r0 = hdr + 1
+    want = norm(ws.cell(r0, kc).value)
+    if not want:
+        return None
+    r1 = r0 - 1
+    for r in range(r0, r0 + 41):
+        if norm(ws.cell(r, kc).value) != want:
+            break
+        r1 = r
+    if r1 < r0:
+        return None
+
+    return (r0, r1, kc + 1, 1, sc, 1)
+
+
 def gendo_block(wb, sn):
     """先行路盤（発生土）の転記元。(r0, r1, 厚さ列, 厚さ幅, 合計列, 合計幅)（VBA の GendoBlock）"""
     key = ("GENDO", sn)
@@ -308,9 +351,25 @@ def gendo_block(wb, sn):
                 break
         if sect:
             break
+    if sect:
+        out = scan_gendo_header(ws, sect)
+        if out:
+            _cache[key] = out
+            return out
+
+    # 給水2度の見出しが無いシート（試掘など）は、もう1つの転記元
+    # 「□先行路盤（再使用）」を試す
+    sect = 0
+    for r in range(1, 61):
+        for c in range(1, 61):
+            if norm(GENDO_BLOCK2) in norm(ws.cell(r, c).value):
+                sect = r
+                break
+        if sect:
+            break
     if not sect:
         return None
-    out = scan_gendo_header(ws, sect)
+    out = scan_saiyou_header(ws, sect)
     _cache[key] = out
     return out
 
@@ -742,7 +801,9 @@ def main():
             ("O166", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H166,給水2度!$X$4:$X$6)"),
             ("O167", "=SUMIF(給水2度!$O$4:$O$6,'総括表（土工事）'!$H167,給水2度!$P$4:$R$6)"),
             ("O168", "=SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$H168,給水2度!$L$4:$N$6)"),
-            ("O169", "=SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$H169,給水2度!$L$4:$N$6)")):
+            ("O169", "=SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$H169,給水2度!$L$4:$N$6)"),
+            ("J162", "=SUMIF('試掘（舗50'!$O$26:$O$31,'総括表（土工事）'!$H162,"
+                     "'試掘（舗50'!$P$26:$P$31)")):
         r = int(cell[1:])
         g = written.get((r, cell[0]), "")
         mark = "一致" if g == expect else f"違う（{g}）"

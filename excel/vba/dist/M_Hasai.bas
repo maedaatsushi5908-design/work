@@ -124,8 +124,18 @@ Private Const KARA_MAP As String = _
 '
 ' 転記元（給水2度）は「路盤厚｜面 積」の並びで、舗装版破砕と逆に
 ' 厚さ欄の方が結合で広く（U:W）、合計欄（面積・X）が1列。
+'
+' 試掘（舗50 など）には給水2度と別の転記元がもう1つある。見出しは
+' 「□先行路盤（再使用）」、並びは種別・舗装厚と同じその1の形だが、
+' 見出しの文字が「路盤厚」で、種別は As/Co ではなく「再使用」の1種類だけ。
+'
+'   =SUMIF('試掘（舗50'!$O$26:$O$31,'総括表（土工事）'!$H162,'試掘（舗50'!$P$26:$P$31)
+'
+' 管工（舗50 などにも「先行路盤（再使用）」の文字はあるが、あれは
+' 試掘側の小計を参照する見出し文字列で、ブロックそのものは無い。
 Private Const GENDO_LABEL As String = "先行路盤（発生土）"
 Private Const GENDO_BLOCK As String = "□先行路盤（発生土）"
+Private Const GENDO_BLOCK2 As String = "□先行路盤（再使用）"
 
 ' 仮復旧（再生As）。総括表の副見出しは「仮復旧」だけ（先行路盤（発生土）とは
 ' 別の副見出し）。左端の「舗装仮復旧」自体に「仮復旧」の文字を含むので、
@@ -620,9 +630,31 @@ Private Function GendoBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lo
         Next c
         If sect > 0 Then Exit For
     Next r
+    If sect > 0 Then
+        If ScanGendoHeader(ws, sect, r0, r1, thkCol, thkWide, sumCol, sumWide) Then
+            mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
+            GendoBlock = True
+            Exit Function
+        End If
+    End If
+
+    ' 給水2度の見出しが無いシート（試掘など）は、もう1つの転記元
+    ' 「□先行路盤（再使用）」を試す
+    sect = 0
+    For r = 1 To 60
+        For c = 1 To 60
+            If InStr(Norm(ws.Cells(r, c).Value), Norm(GENDO_BLOCK2)) > 0 Then
+                sect = r
+                Exit For
+            End If
+        Next c
+        If sect > 0 Then Exit For
+    Next r
     If sect = 0 Then Exit Function
 
-    If Not ScanGendoHeader(ws, sect, r0, r1, thkCol, thkWide, sumCol, sumWide) Then Exit Function
+    If Not ScanSaiyouHeader(ws, sect, r0, r1, thkCol, sumCol) Then Exit Function
+    thkWide = 1
+    sumWide = 1
 
     mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
     GendoBlock = True
@@ -673,6 +705,60 @@ Private Function ScanGendoHeader(ByVal ws As Worksheet, ByVal sect As Long, _
     sumCol = sc
     sumWide = MergeWide(ws, r0, sc)
     ScanGendoHeader = True
+End Function
+
+'------------------------------------------------------------------
+' 先行路盤（再使用）の並び － その1（種別・舗装厚｜合 計）と同じ形だが、
+' 見出しの文字が「路盤厚」で、種別は As/Co ではなく「再使用」の1種類だけ
+' （試掘（舗50 など）。
+'
+'   □先行路盤（再使用）
+'   種別・路盤厚 | 合 計
+'   再使用   10   |  0.6
+'
+' 「種別・路盤厚」の1つ右が厚さ、その右で最初に来る「合 計」が数量。
+' 種別の欄が同じ文字（先頭行の値）で続くところまでを行の範囲とする
+' （As/Co のような決まった語ではないので、続く限り読む）。
+'------------------------------------------------------------------
+Private Function ScanSaiyouHeader(ByVal ws As Worksheet, ByVal sect As Long, _
+                                  ByRef r0 As Long, ByRef r1 As Long, _
+                                  ByRef thkCol As Long, ByRef sumCol As Long) As Boolean
+    Dim r As Long, c As Long, hdr As Long, v As String, want As String
+    Dim kinds As String, totals As String, kArr As Variant, tArr As Variant, kc As Long
+
+    For r = sect + 1 To sect + 3
+        kinds = "": totals = ""
+        For c = 1 To 60
+            v = Norm(ws.Cells(r, c).Value)
+            If v = Norm("種別・路盤厚") Then kinds = kinds & c & ","
+            If v = Norm("合 計") Then totals = totals & c & ","
+        Next c
+        If Len(kinds) > 0 And Len(totals) > 0 Then
+            hdr = r
+            Exit For
+        End If
+    Next r
+    If hdr = 0 Then Exit Function
+
+    kArr = Split(Left$(kinds, Len(kinds) - 1), ",")
+    tArr = Split(Left$(totals, Len(totals) - 1), ",")
+    kc = CLng(kArr(0))
+
+    thkCol = kc + 1
+    sumCol = NextTotal(tArr, kc)
+    If sumCol = 0 Then Exit Function
+
+    r0 = hdr + 1
+    want = Norm(ws.Cells(r0, kc).Value)
+    If Len(want) = 0 Then Exit Function
+    r1 = r0 - 1
+    For r = r0 To r0 + 40
+        If Norm(ws.Cells(r, kc).Value) <> want Then Exit For
+        r1 = r
+    Next r
+    If r1 < r0 Then Exit Function
+
+    ScanSaiyouHeader = True
 End Function
 
 '------------------------------------------------------------------
