@@ -40,6 +40,9 @@ KARA_MAP = ("殻運搬>現場+仮置場>□As殻Co殻運搬（|"
             "殻運搬>積込み>●仮置土積込工")
 GENDO_LABEL = "先行路盤（発生土）"    # 左端は「舗装仮復旧」で共通。副見出しで見分ける
 GENDO_BLOCK = "□先行路盤（発生土）"
+FUKKYU_LABEL = "仮復旧"    # 「舗装仮復旧」に含まれるので完全一致で見分ける
+FUKKYU_SRC = "給水2度"
+FUKKYU_SIDE_MAP = "4=歩道|5=車道|10=車道"
 INPUT_COLOR = "FFFF00"
 
 
@@ -328,10 +331,61 @@ def gendo_ref(wb, sn, tname, thk_ref):
             f"{q}{rng(sum_col, sum_wide, r0, r1)})"), ""
 
 
+def fukkyu_side(thick_text):
+    """厚さ(cm) → 車道/歩道（VBA の FukkyuSide）。マップに無ければ空文字"""
+    for p in FUKKYU_SIDE_MAP.split("|"):
+        k, _, v = p.partition("=")
+        if k.strip() == str(thick_text).strip():
+            return v.strip()
+    return ""
+
+
+def fukkyu_ref(wb, sn, tname, thk_ref, thick_text):
+    """仮復旧（再生As）の1セル分（VBA の FukkyuRef）
+
+    転記元は舗装版破砕と同じ「車道/歩道 5号工」の枠を使うが、車道＋歩道を
+    足さずどちらか片方だけを使う。どちらの側かは工事ごとに違うので
+    FUKKYU_SIDE_MAP（厚さ→車道/歩道）で決める。給水2度以外はまだ対応が
+    無いので黙って見送る。
+    """
+    if sn != FUKKYU_SRC:
+        return "", ""
+    side = fukkyu_side(thick_text)
+    if not side:
+        return "", f"厚さ {thick_text} の車道/歩道が FUKKYU_SIDE_MAP にありません"
+    b = hasai_block(wb, sn)
+    if not b:
+        return "", f"{sn} に {BLOCK_LABEL} のブロックがありません"
+    r0, r1, pairs = b
+    idx = 0 if side == "車道" else 1
+    if idx >= len(pairs):
+        return "", f"{sn} に {side} 側の欄がありません"
+    _, thk, tot, w = pairs[idx]
+    crit = sheet_ref(tname) + thk_ref
+    q = sheet_ref(sn)
+    return "=" + f"SUMIF({q}{rng(thk, 1, r0, r1)},{crit},{q}{rng(tot, w, r0, r1)})", ""
+
+
+def has_exact_label(ws, r, first_col, label):
+    """左の欄のどれかが label とちょうど一致するか（部分一致ではなく）。
+    「仮復旧」が左端の「舗装仮復旧」に含まれてしまうケースを区別するため
+    （VBA の HasExactLabel）"""
+    want = norm(label)
+    for c in range(1, first_col):
+        v = merged_value(ws, r, c)
+        if v is None:
+            continue
+        t = str(v)
+        if not t.startswith("=") and norm(t) == want:
+            return True
+    return False
+
+
 def thick_cell_for(ws, r, tc, sect):
-    """厚さの入っているセル (row, col) を返す。先行路盤（発生土）は I ではなく
-    H にあるので、厚さ列の1つ左で数値が見つかった列を厚さ欄とみなす（VBA と同じ）"""
-    if sect == GENDO_LABEL:
+    """厚さの入っているセル (row, col) を返す。先行路盤（発生土）・仮復旧は
+    I ではなく H にあるので、厚さ列の1つ左で数値が見つかった列を厚さ欄と
+    みなす（VBA と同じ）"""
+    if sect in (GENDO_LABEL, FUKKYU_LABEL):
         for cc in range(tc - 1, 0, -1):
             tr0, tc0 = merged_top(ws, r, cc)
             if is_num(ws.cell(tr0, tc0).value):
@@ -383,6 +437,10 @@ def section_of(ws, r, first_col):
         # 左端（B列）は「舗装仮復旧」で他の資材とも共通。副見出し
         # （C列）に「先行路盤（発生土）」があるかで見分ける
         return GENDO_LABEL
+    if has_exact_label(ws, r, first_col, FUKKYU_LABEL):
+        # 「仮復旧」は左端の「舗装仮復旧」自体にも含まれるので、部分一致
+        # ではなく完全一致で見分ける
+        return FUKKYU_LABEL
     if kara_anchor_of(head, whole):
         return KARA_LABEL
     return ""
@@ -602,8 +660,9 @@ def main():
         mr, mc = cell
         tr = f"${gl(mc)}{mr}"
         kd = kind_of_row(ws, r, first_col)
-        # 殻運搬・先行路盤（発生土）は種別（As/Co）の欄が無いので、そこは問わない
-        if not kd and sect not in (KARA_LABEL, GENDO_LABEL):
+        # 殻運搬・先行路盤（発生土）・仮復旧は種別（As/Co）の欄が無いので、
+        # そこは問わない
+        if not kd and sect not in (KARA_LABEL, GENDO_LABEL, FUKKYU_LABEL):
             continue
         for cl, sn in pairs:
             ok = is_sub_cell(ws, r, ci(cl)) if sect == KARA_LABEL \
@@ -616,6 +675,8 @@ def main():
                 f, note = cut_ref(wb, sn, str(ws.cell(mr, mc).value), kd)
             elif sect == GENDO_LABEL:
                 f, note = gendo_ref(wb, sn, ws.title, tr)
+            elif sect == FUKKYU_LABEL:
+                f, note = fukkyu_ref(wb, sn, ws.title, tr, str(ws.cell(mr, mc).value))
             else:
                 f, note = kara_ref(wb, sn, anchor, grp)
             if not f:
@@ -674,7 +735,10 @@ def main():
             ("O163", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H163,給水2度!$X$4:$X$6)"),
             ("O164", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H164,給水2度!$X$4:$X$6)"),
             ("O165", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H165,給水2度!$X$4:$X$6)"),
-            ("O166", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H166,給水2度!$X$4:$X$6)")):
+            ("O166", "=SUMIF(給水2度!$U$4:$W$6,'総括表（土工事）'!$H166,給水2度!$X$4:$X$6)"),
+            ("O167", "=SUMIF(給水2度!$O$4:$O$6,'総括表（土工事）'!$H167,給水2度!$P$4:$R$6)"),
+            ("O168", "=SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$H168,給水2度!$L$4:$N$6)"),
+            ("O169", "=SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$H169,給水2度!$L$4:$N$6)")):
         r = int(cell[1:])
         g = written.get((r, cell[0]), "")
         mark = "一致" if g == expect else f"違う（{g}）"

@@ -127,6 +127,25 @@ Private Const KARA_MAP As String = _
 Private Const GENDO_LABEL As String = "先行路盤（発生土）"
 Private Const GENDO_BLOCK As String = "□先行路盤（発生土）"
 
+' 仮復旧（再生As）。総括表の副見出しは「仮復旧」だけ（先行路盤（発生土）とは
+' 別の副見出し）。左端の「舗装仮復旧」自体に「仮復旧」の文字を含むので、
+' 副見出しの一致は部分一致ではなく完全一致で見分ける（HasExactLabel）。
+' 厚さは先行路盤（発生土）と同じく I ではなく H。
+'
+'   O167 = SUMIF(給水2度!$O$4:$O$6,'総括表（土工事）'!$H167,給水2度!$P$4:$R$6)
+'   O168 = SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$H168,給水2度!$L$4:$N$6)
+'
+' 転記元（給水2度）は舗装版破砕と同じ「車道 5号工／歩道 5号工」の枠
+' （その2）をそのまま使う。ただし舗装版破砕のように車道＋歩道を足すのでは
+' なく、**車道か歩道のどちらか片方だけ**を使う。号工の枠は車道・歩道とも
+' 「As」表記なので kind（As/Co）では選べない。号工の候補一覧（K/O）は
+' 車道・歩道で別々に詰めて並ぶため、同じ厚さでもどちらの側にあるかは
+' 工事ごとに違う。マクロには推測させず、この工事で確かめた対応を書く。
+' 別の工事に持っていくときは FUKKYU_SIDE_MAP を確かめ直すこと。
+Private Const FUKKYU_LABEL As String = "仮復旧"
+Private Const FUKKYU_SRC As String = "給水2度"
+Private Const FUKKYU_SIDE_MAP As String = "4=歩道|5=車道|10=車道"
+
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
 
@@ -285,15 +304,16 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
             ' 入れたとき、そのまま数量が出るようにするため。
             ' 舗装切断工は厚さが区分の文字（t≦15㎝）なので、文字でよい。
             ' 殻運搬は厚さの欄を使わず、摘要（As・車道）で照合する。
-            ' 先行路盤（発生土）は厚さが I ではなく H にある。種別（As/Co）の
-            ' 欄が無いので、厚さ列の1つ左で数値が見つかった列を厚さ欄とみなす。
+            ' 先行路盤（発生土）・仮復旧（再生As）は厚さが I ではなく H にある。
+            ' 種別（As/Co）の欄が無いので、厚さ列の1つ左で数値が見つかった
+            ' 列を厚さ欄とみなす。
             Dim ok As Boolean, grp As String, anchor As String
             grp = "": anchor = ""
             If sect = SECTION_LABEL Then
                 ok = Not IsTextCell(thkCell)
             ElseIf sect = CUT_LABEL Then
                 ok = IsTextCell(thkCell)
-            ElseIf sect = GENDO_LABEL Then
+            ElseIf sect = GENDO_LABEL Or sect = FUKKYU_LABEL Then
                 Dim gCol As Long
                 For gCol = thkCol - 1 To 1 Step -1
                     Set thkCell = ws.Cells(r, gCol).MergeArea.Cells(1, 1)
@@ -307,8 +327,10 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                 ok = (Len(anchor) > 0)
             End If
 
-            ' 殻運搬・先行路盤（発生土）は種別（As/Co）の欄が無いので、そこは問わない
-            If sect <> KARA_LABEL And sect <> GENDO_LABEL And Len(kind) = 0 Then ok = False
+            ' 殻運搬・先行路盤（発生土）・仮復旧は種別（As/Co）の欄が無いので、
+            ' そこは問わない
+            If sect <> KARA_LABEL And sect <> GENDO_LABEL And sect <> FUKKYU_LABEL _
+               And Len(kind) = 0 Then ok = False
 
             If ok Then
                 thkRef = "$" & ColLetter(thkCell.Column) & thkCell.Row
@@ -328,6 +350,8 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                             f = CutRef(srcs(i), CStr(thkCell.Text), kind, note)
                         ElseIf sect = GENDO_LABEL Then
                             f = GendoRef(srcs(i), ws.Name, thkRef, note)
+                        ElseIf sect = FUKKYU_LABEL Then
+                            f = FukkyuRef(srcs(i), ws.Name, thkRef, CStr(thkCell.Text), note)
                         Else
                             f = KaraRef(srcs(i), anchor, grp, note)
                         End If
@@ -649,6 +673,63 @@ Private Function ScanGendoHeader(ByVal ws As Worksheet, ByVal sect As Long, _
     sumCol = sc
     sumWide = MergeWide(ws, r0, sc)
     ScanGendoHeader = True
+End Function
+
+'------------------------------------------------------------------
+' 仮復旧（再生As）の1セル分。転記元は舗装版破砕と同じ「車道/歩道 5号工」
+' の枠（その2）を使うが、車道＋歩道を足さず、どちらか片方だけを使う。
+'
+'   =SUMIF(給水2度!$O$4:$O$6,'総括表（土工事）'!$H167,給水2度!$P$4:$R$6)
+'
+' 号工の枠は車道・歩道ともラベルが「As」なので kind では選べない。
+' どちらの側かは FUKKYU_SIDE_MAP（厚さ→車道/歩道）で決める。
+'------------------------------------------------------------------
+Private Function FukkyuRef(ByVal sn As String, ByVal tName As String, _
+                           ByVal thkRef As String, ByVal thickText As String, _
+                           ByRef note As String) As String
+    Dim r0 As Long, r1 As Long, pairs As String, side As String
+    Dim arr As Variant, a As Variant, crit As String, idx As Long
+
+    ' 給水2度以外はまだ対応が無いので黙って見送る（既存の手入力の式を残す）
+    If sn <> FUKKYU_SRC Then Exit Function
+
+    side = FukkyuSide(thickText)
+    If Len(side) = 0 Then
+        note = "厚さ " & thickText & " の車道/歩道が FUKKYU_SIDE_MAP にありません"
+        Exit Function
+    End If
+
+    If Not HasaiBlock(sn, r0, r1, pairs) Then
+        note = sn & " に " & BLOCK_LABEL & " のブロックがありません"
+        Exit Function
+    End If
+
+    arr = Split(pairs, "|")
+    idx = IIf(side = "車道", 0, 1)
+    If idx > UBound(arr) Then
+        note = sn & " に " & side & " 側の欄がありません"
+        Exit Function
+    End If
+    a = Split(CStr(arr(idx)), ",")
+
+    crit = SheetRef(tName) & thkRef
+    FukkyuRef = "=" & SumifTerm(sn, CLng(a(1)), CLng(a(2)), CLng(a(3)), r0, r1, crit)
+End Function
+
+' 厚さ(cm) → 車道/歩道。号工の候補一覧は車道・歩道で別々に詰めて並ぶため、
+' 同じ厚さでもどちらの側にあるかは工事ごとに違う。FUKKYU_SIDE_MAP に
+' 書いていない厚さは空文字を返す。
+Private Function FukkyuSide(ByVal thickText As String) As String
+    Dim p As Variant, kv As Variant
+    For Each p In Split(FUKKYU_SIDE_MAP, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            If Trim$(CStr(kv(0))) = Trim$(thickText) Then
+                FukkyuSide = Trim$(CStr(kv(1)))
+                Exit Function
+            End If
+        End If
+    Next p
 End Function
 
 ' 数式に書くシート名。Excel と同じで、囲む必要のある名前だけ ' で囲む。
@@ -1191,9 +1272,29 @@ Private Function SectionOf(ByVal ws As Worksheet, ByVal r As Long, _
         ' 左端（B列）は「舗装仮復旧」で他の資材とも共通。副見出し
         ' （C列）に「先行路盤（発生土）」があるかで見分ける
         SectionOf = GENDO_LABEL
+    ElseIf HasExactLabel(ws, r, firstCol, FUKKYU_LABEL) Then
+        ' 「仮復旧」は左端の「舗装仮復旧」自体にも含まれる文字なので、
+        ' whole の部分一致では区別できない。副見出しの完全一致で見分ける
+        SectionOf = FUKKYU_LABEL
     ElseIf Len(KaraAnchorOf(head, whole)) > 0 Then
         SectionOf = KARA_LABEL
     End If
+End Function
+
+' 左の欄のどれかが、label とちょうど一致するか（部分一致ではなく）。
+' 「仮復旧」が左端の「舗装仮復旧」に含まれてしまうケースを区別するため
+Private Function HasExactLabel(ByVal ws As Worksheet, ByVal r As Long, _
+                               ByVal firstCol As Long, ByVal label As String) As Boolean
+    Dim c As Long, v As Variant, want As String
+    want = Norm(label)
+    For c = 1 To firstCol - 1
+        v = MergedValue(ws, r, c)
+        If Not IsEmpty(v) Then
+            If Left$(CStr(v), 1) <> "=" Then
+                If Norm(CStr(v)) = want Then HasExactLabel = True: Exit Function
+            End If
+        End If
+    Next c
 End Function
 
 '------------------------------------------------------------------
@@ -1317,7 +1418,8 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
                           ByRef srcs() As String, ByVal nCol As Long, _
                           ByVal firstCol As Long) As String
     Dim r As Long, i As Long, lastRow As Long, thkCol As Long
-    Dim nHas As Long, nCut As Long, nKara As Long, nGendo As Long, nKind As Long, nYellow As Long
+    Dim nHas As Long, nCut As Long, nKara As Long, nGendo As Long, nFukkyu As Long
+    Dim nKind As Long, nYellow As Long
     Dim nB1 As Long, nB2 As Long, nB3 As Long, sect As String
     Dim r0 As Long, r1 As Long, pairs As String
 
@@ -1332,10 +1434,13 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
                 nCut = nCut + 1
             ElseIf sect = GENDO_LABEL Then
                 nGendo = nGendo + 1
+            ElseIf sect = FUKKYU_LABEL Then
+                nFukkyu = nFukkyu + 1
             Else
                 nKara = nKara + 1
             End If
-            If sect = GENDO_LABEL Or Len(KindOfRow(ws, r, firstCol)) > 0 Then nKind = nKind + 1
+            If sect = GENDO_LABEL Or sect = FUKKYU_LABEL _
+               Or Len(KindOfRow(ws, r, firstCol)) > 0 Then nKind = nKind + 1
             For i = 0 To nCol - 1
                 If IsInputCell(ws.Cells(r, ColNum(cols(i)))) Then nYellow = nYellow + 1
             Next i
@@ -1353,6 +1458,7 @@ Private Function Diagnose(ByVal ws As Worksheet, ByRef cols() As String, _
         "　" & CUT_LABEL & " の行 … " & nCut & " 行" & vbCrLf & _
         "　" & KARA_LABEL & "(現場→処分地) の行 … " & nKara & " 行" & vbCrLf & _
         "　" & GENDO_LABEL & " の行 … " & nGendo & " 行" & vbCrLf & _
+        "　" & FUKKYU_LABEL & "（再生As） の行 … " & nFukkyu & " 行" & vbCrLf & _
         "　厚さ列 … " & IIf(thkCol > 0, ColLetter(thkCol) & " 列", "見つからない") & vbCrLf & _
         "　種別(As/Co)が読めた行 … " & nKind & " 行" & vbCrLf & _
         "　黄色い入力セル … " & nYellow & " 個" & vbCrLf & _
