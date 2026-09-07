@@ -114,14 +114,16 @@ Private Const KARA_MAP As String = _
     "殻運搬>現場+処分地>●殻運搬処理|" & _
     "殻運搬>積込み>●仮置土積込工"
 
-' 仮配（舗 の殻運搬（現場→処分地）だけは並びが違う。転記元に「＝」の
-' 並びが無く、その1に似た並び（種別・舗装厚｜合 計）で、以下/超の順番も
-' 総括表の行の並びと単純に対応しない（15㎝以下の予備行が車道・歩道・
+' 仮配（舗・給水(舗 の殻運搬（現場→処分地）だけは並びが違う。転記元に
+' 「＝」の並びが無く、その1に似た並び（種別・舗装厚｜合 計）で、以下/超の
+' 順番も総括表の行の並びと単純に対応しない（15㎝以下の予備行が車道・歩道・
 ' Co・舗装で挟まる位置が違う）ため、KaraRows では読めない。
-' マクロには推測させず、この工事で確かめた行の対応（総括表の行→
-' 仮配（舗 のセル）をそのまま書く。
-Private Const KARA_P_SRC As String = "仮配（舗"
-Private Const KARA_P_MAP As String = "83=T20|85=T21|87=T22|89=T23|91=Y20|93=Y21"
+' マクロには推測させず、この工事で確かめたシートごとの行の対応
+' （総括表の行→転記元のセル）をそのまま書く。
+' 「シート名>行=セル|行=セル|…」をシートの数だけ ; で連ねる。
+Private Const KARA_DIRECT_MAP As String = _
+    "仮配（舗>83=T20|85=T21|87=T22|89=T23|91=Y20|93=Y21;" & _
+    "給水(舗>83=T19|85=T20|87=T21|89=T22|91=Y19|93=Y20"
 
 ' 先行路盤（発生土）。総括表の左端は「舗装仮復旧」で、同じ材料欄に
 ' 先行路盤（発生土 以外）・仮復旧（再生Asなど）も並ぶので、副見出し
@@ -1462,9 +1464,11 @@ Private Function KaraRef(ByVal sn As String, ByVal anchor As String, _
     Dim list_ As String, p As Variant, a As Variant
     Dim want As String, lab As String, hit As String
 
-    ' 仮配（舗 の殻運搬（現場→処分地）は行の対応をそのまま書いた表で引く
-    If sn = KARA_P_SRC Then
-        KaraRef = KaraPRef(r)
+    ' KARA_DIRECT_MAP に載っているシートは、行の対応をそのまま書いた表で引く
+    Dim directRows As String
+    directRows = KaraDirectRows(sn)
+    If Len(directRows) > 0 Then
+        KaraRef = KaraDirectRef(sn, directRows, r)
         Exit Function
     End If
 
@@ -1505,15 +1509,31 @@ Private Function KaraRef(ByVal sn As String, ByVal anchor As String, _
     note = sn & " に「" & Flat(label) & "」の行がありません"
 End Function
 
-' 仮配（舗 の殻運搬（現場→処分地）専用：総括表の行番号から KARA_P_MAP を
-' そのまま引いて、参照先セルの数式を組み立てる
-Private Function KaraPRef(ByVal r As Long) As String
+' KARA_DIRECT_MAP からシート名 sn の「行=セル|…」の並びを取り出す。
+' 載っていないシートは空文字列（呼び出し側はそのシートを黙って飛ばす）
+Private Function KaraDirectRows(ByVal sn As String) As String
+    Dim e As Variant, parts As Variant
+    For Each e In Split(KARA_DIRECT_MAP, ";")
+        parts = Split(CStr(e), ">")
+        If UBound(parts) = 1 Then
+            If CStr(parts(0)) = sn Then
+                KaraDirectRows = CStr(parts(1))
+                Exit Function
+            End If
+        End If
+    Next e
+End Function
+
+' KaraDirectRows で取り出した「行=セル|…」から、総括表の行番号 r に
+' 対応するセルの数式を組み立てる
+Private Function KaraDirectRef(ByVal sn As String, ByVal rows_ As String, _
+                                ByVal r As Long) As String
     Dim p As Variant, kv As Variant
-    For Each p In Split(KARA_P_MAP, "|")
+    For Each p In Split(rows_, "|")
         kv = Split(CStr(p), "=")
         If UBound(kv) = 1 Then
             If CLng(kv(0)) = r Then
-                KaraPRef = "=" & SheetRef(KARA_P_SRC) & CStr(kv(1))
+                KaraDirectRef = "=" & SheetRef(sn) & CStr(kv(1))
                 Exit Function
             End If
         End If
