@@ -114,6 +114,15 @@ Private Const KARA_MAP As String = _
     "殻運搬>現場+処分地>●殻運搬処理|" & _
     "殻運搬>積込み>●仮置土積込工"
 
+' 仮配（舗 の殻運搬（現場→処分地）だけは並びが違う。転記元に「＝」の
+' 並びが無く、その1に似た並び（種別・舗装厚｜合 計）で、以下/超の順番も
+' 総括表の行の並びと単純に対応しない（15㎝以下の予備行が車道・歩道・
+' Co・舗装で挟まる位置が違う）ため、KaraRows では読めない。
+' マクロには推測させず、この工事で確かめた行の対応（総括表の行→
+' 仮配（舗 のセル）をそのまま書く。
+Private Const KARA_P_SRC As String = "仮配（舗"
+Private Const KARA_P_MAP As String = "83=T20|85=T21|87=T22|89=T23|91=Y20|92=Y21"
+
 ' 先行路盤（発生土）。総括表の左端は「舗装仮復旧」で、同じ材料欄に
 ' 先行路盤（発生土 以外）・仮復旧（再生Asなど）も並ぶので、副見出し
 ' 「先行路盤（発生土）」があるかどうかで見分ける。
@@ -382,7 +391,11 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                     Set cel = ws.Cells(r, ColNum(cols(i)))
                     Dim isTarget As Boolean
                     If sect = KARA_LABEL Then
-                        isTarget = IsSubCell(cel)     ' 殻運搬は薄橙も入力セル
+                        ' 殻運搬は薄橙も入力セル。仮配（舗 の現場→処分地は
+                        ' KARA_P_MAP に載っている行なら、色が付いていなくても
+                        ' 書く（P92 のように塗り分けが漏れている行があるため）
+                        isTarget = IsSubCell(cel) Or _
+                            (srcs(i) = KARA_P_SRC And KaraPHasRow(r))
                     Else
                         isTarget = IsInputCell(cel)
                     End If
@@ -399,7 +412,7 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                         ElseIf sect = ZENKOURO_LABEL Then
                             f = ZenkouroRef(srcs(i), ws.Name, thkRef, r, note)
                         Else
-                            f = KaraRef(srcs(i), anchor, grp, note)
+                            f = KaraRef(srcs(i), anchor, grp, r, note)
                         End If
                         If Len(f) = 0 Then
                             ' 理由の無い空は「その工種がまだ未対応」というだけ。
@@ -1448,9 +1461,16 @@ End Function
 ' 転記元に無いので、どの行に入れるかは黄色の塗り分けに従う。
 '------------------------------------------------------------------
 Private Function KaraRef(ByVal sn As String, ByVal anchor As String, _
-                         ByVal label As String, ByRef note As String) As String
+                         ByVal label As String, ByVal r As Long, _
+                         ByRef note As String) As String
     Dim list_ As String, p As Variant, a As Variant
     Dim want As String, lab As String, hit As String
+
+    ' 仮配（舗 の殻運搬（現場→処分地）は行の対応をそのまま書いた表で引く
+    If sn = KARA_P_SRC Then
+        KaraRef = KaraPRef(r)
+        Exit Function
+    End If
 
     ' ブロックの無いシートは、この工種がまだ未対応というだけなので黙って飛ばす
     If Not KaraRows(sn, anchor, list_) Then Exit Function
@@ -1487,6 +1507,35 @@ Private Function KaraRef(ByVal sn As String, ByVal anchor As String, _
     End If
 
     note = sn & " に「" & Flat(label) & "」の行がありません"
+End Function
+
+' r が KARA_P_MAP に載っている行かどうか
+Private Function KaraPHasRow(ByVal r As Long) As Boolean
+    Dim p As Variant, kv As Variant
+    For Each p In Split(KARA_P_MAP, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            If CLng(kv(0)) = r Then
+                KaraPHasRow = True
+                Exit Function
+            End If
+        End If
+    Next p
+End Function
+
+' 仮配（舗 の殻運搬（現場→処分地）専用：総括表の行番号から KARA_P_MAP を
+' そのまま引いて、参照先セルの数式を組み立てる
+Private Function KaraPRef(ByVal r As Long) As String
+    Dim p As Variant, kv As Variant
+    For Each p In Split(KARA_P_MAP, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            If CLng(kv(0)) = r Then
+                KaraPRef = "=" & SheetRef(KARA_P_SRC) & CStr(kv(1))
+                Exit Function
+            End If
+        End If
+    Next p
 End Function
 
 ' 改行や余分な空白を詰める。メッセージに出すときだけ使う
