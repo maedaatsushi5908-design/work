@@ -45,6 +45,9 @@ FUKKYU_LABEL = "仮復旧"    # 「舗装仮復旧」に含まれるので完全
 FUKKYU_SRC = "給水2度"
 FUKKYU_SIDE_MAP = "4=歩道|5=車道|10=車道"
 FUKKYU_BLOCK2 = "□仮復旧工"    # 仮配（舗 のもう1つの転記元（その1と同じ並び）
+ZENKOURO_LABEL = "先行路盤"    # 「先行路盤（発生土）」に含まれるので完全一致で見分ける
+ZENKOURO_BLOCK = "□先行路盤"    # 材料名（再生／粒調）で選ぶ、もう1つの先行路盤
+ZENKOURO_MATERIALS = "再生砕石|粒調砕石"    # 式に書く材料名（総括表側の書き方）
 INPUT_COLOR = "FFFF00"
 
 
@@ -470,6 +473,130 @@ def fukkyu_ref(wb, sn, tname, thk_ref, thick):
             f"{q}{rng(sum_col, sum_wide, r0, r1)})"), ""
 
 
+def scan_zenkouro_header(ws, sect):
+    """並び －「種別・路盤厚｜合 計」が2枠あり、種別がラベル名そのもの
+    （給水(舗 は「再生」「粒調」、管工は「再生砕石」「粒調砕石」）（VBA の
+    ScanZenkouroHeader）。その1と似ているが種別が As/Co ではなく資材名
+    なので、枠ごとにラベルをそのまま持ち帰る。
+    """
+    hdr, kinds, totals = 0, [], []
+    for r in range(sect + 1, sect + 4):
+        kinds, totals = [], []
+        for c in range(1, 61):
+            v = norm(ws.cell(r, c).value)
+            if v == norm("種別・路盤厚"):
+                kinds.append(c)
+            if v == norm("合 計"):
+                totals.append(c)
+        if kinds and totals:
+            hdr = r
+            break
+    if not hdr:
+        return None
+
+    r0 = hdr + 1
+    want = norm(ws.cell(r0, kinds[0]).value)
+    if not want:
+        return None
+    r1 = r0 - 1
+    for r in range(r0, r0 + 41):
+        if norm(ws.cell(r, kinds[0]).value) != want:
+            break
+        r1 = r
+    if r1 < r0:
+        return None
+
+    pairs = []
+    for kc in kinds:
+        nxt = [t for t in totals if t > kc]
+        if not nxt:
+            continue
+        sc = min(nxt)
+        kind_label = str(ws.cell(r0, kc).value or "").strip()
+        if not kind_label:
+            continue
+        thk_col = kc + 1
+        thk_wide = merge_wide(ws, r0, thk_col)
+        sum_wide = merge_wide(ws, r0, sc)
+        pairs.append((kind_label, thk_col, thk_wide, sc, sum_wide))
+    if not pairs:
+        return None
+    return (r0, r1, pairs)
+
+
+def zenkouro_block(wb, sn):
+    """先行路盤（材料名）の転記元。(r0, r1, [(材料名, 厚さ列, 厚さ幅, 合計列,
+    合計幅), ...])（VBA の ZenkouroBlock）"""
+    key = ("ZENKOURO", sn)
+    if key in _cache:
+        return _cache[key]
+    _cache[key] = None
+    if sn not in wb.sheetnames:
+        return None
+    ws = wb[sn]
+    # 「先行路盤（発生土）」「先行路盤（再使用）」は括弧が続くので除く。
+    # 「…No.2」も避ける（gendo_block と同じ理由）
+    sect = 0
+    for r in range(1, 61):
+        for c in range(1, 61):
+            v = norm(ws.cell(r, c).value)
+            if norm(ZENKOURO_BLOCK) in v and norm("先行路盤（") not in v and "NO.2" not in v:
+                sect = r
+                break
+        if sect:
+            break
+    if not sect:
+        return None
+    out = scan_zenkouro_header(ws, sect)
+    _cache[key] = out
+    return out
+
+
+def zenkouro_ref(wb, sn, tname, thk_ref, r):
+    """先行路盤（材料名）の1セル分（VBA の ZenkouroRef）
+
+    厚さでは選べないので、材料名（E列）が枠のラベルと一致するかを式
+    そのものに書く。式に書く比較文字列は総括表の材料名の書き方
+    （ZENKOURO_MATERIALS）にそろえ、転記元の枠はラベルがその材料名に
+    含まれるかどうかで選ぶ（給水(舗 は「再生」、管工は「再生砕石」と
+    ラベルの書き方が違うが、どちらも「再生砕石」に含まれる）。
+    マクロ側では材料名を見ず、どの行にも同じ式（行番号だけ違う）を
+    入れる。最初の条件だけ総括表のシート名を付け、2つ目以降は付けない
+    （指示された式のとおり）。枠に無い材料は自動化できる転記元が無いので
+    そのまま文字列「手入力」を返す式にする。
+    """
+    b = zenkouro_block(wb, sn)
+    if not b:
+        return "", ""
+    r0, r1, pairs = b
+
+    mat_ref = sheet_ref(tname) + f"E{r}"
+    mat_bare = f"E{r}"
+    crit = sheet_ref(tname) + thk_ref
+    q = sheet_ref(sn)
+
+    mats = ZENKOURO_MATERIALS.split("|")
+    terms = [""] * len(mats)
+    first_idx = None
+    for j, mat in enumerate(mats):
+        for kind_label, thk_col, thk_wide, sum_col, sum_wide in pairs:
+            if kind_label in mat:
+                terms[j] = (f"SUMIF({q}{rng(thk_col, thk_wide, r0, r1)},{crit},"
+                            f"{q}{rng(sum_col, sum_wide, r0, r1)})")
+                if first_idx is None:
+                    first_idx = j
+                break
+    if first_idx is None:
+        return "", ""
+
+    out = '"手入力"'
+    for j in range(len(mats) - 1, -1, -1):
+        if terms[j]:
+            cond = mat_ref if j == first_idx else mat_bare
+            out = f'IF({cond}="{mats[j]}",{terms[j]},{out})'
+    return "=" + out, ""
+
+
 def has_exact_label(ws, r, first_col, label):
     """左の欄のどれかが label とちょうど一致するか（部分一致ではなく）。
     「仮復旧」が左端の「舗装仮復旧」に含まれてしまうケースを区別するため
@@ -486,10 +613,10 @@ def has_exact_label(ws, r, first_col, label):
 
 
 def thick_cell_for(ws, r, tc, sect):
-    """厚さの入っているセル (row, col) を返す。先行路盤（発生土）・仮復旧は
-    I ではなく H にあるので、厚さ列の1つ左で数値が見つかった列を厚さ欄と
-    みなす（VBA と同じ）"""
-    if sect in (GENDO_LABEL, FUKKYU_LABEL):
+    """厚さの入っているセル (row, col) を返す。先行路盤（発生土）・仮復旧・
+    先行路盤（材料名）は I ではなく H にあるので、厚さ列の1つ左で数値が
+    見つかった列を厚さ欄とみなす（VBA と同じ）"""
+    if sect in (GENDO_LABEL, FUKKYU_LABEL, ZENKOURO_LABEL):
         for cc in range(tc - 1, 0, -1):
             tr0, tc0 = merged_top(ws, r, cc)
             if is_num(ws.cell(tr0, tc0).value):
@@ -545,6 +672,9 @@ def section_of(ws, r, first_col):
         # 「仮復旧」は左端の「舗装仮復旧」自体にも含まれるので、部分一致
         # ではなく完全一致で見分ける
         return FUKKYU_LABEL
+    if has_exact_label(ws, r, first_col, ZENKOURO_LABEL):
+        # 「先行路盤」も同じ理由で完全一致で見分ける
+        return ZENKOURO_LABEL
     if kara_anchor_of(head, whole):
         return KARA_LABEL
     return ""
@@ -764,9 +894,9 @@ def main():
         mr, mc = cell
         tr = f"${gl(mc)}{mr}"
         kd = kind_of_row(ws, r, first_col)
-        # 殻運搬・先行路盤（発生土）・仮復旧は種別（As/Co）の欄が無いので、
-        # そこは問わない
-        if not kd and sect not in (KARA_LABEL, GENDO_LABEL, FUKKYU_LABEL):
+        # 殻運搬・先行路盤（発生土）・仮復旧・先行路盤（材料名）は種別
+        # （As/Co）の欄が無いので、そこは問わない
+        if not kd and sect not in (KARA_LABEL, GENDO_LABEL, FUKKYU_LABEL, ZENKOURO_LABEL):
             continue
         for cl, sn in pairs:
             ok = is_sub_cell(ws, r, ci(cl)) if sect == KARA_LABEL \
@@ -781,6 +911,8 @@ def main():
                 f, note = gendo_ref(wb, sn, ws.title, tr)
             elif sect == FUKKYU_LABEL:
                 f, note = fukkyu_ref(wb, sn, ws.title, tr, ws.cell(mr, mc).value)
+            elif sect == ZENKOURO_LABEL:
+                f, note = zenkouro_ref(wb, sn, ws.title, tr, r)
             else:
                 f, note = kara_ref(wb, sn, anchor, grp)
             if not f:
@@ -848,7 +980,12 @@ def main():
             ("P162", "=SUMIF('仮配（舗'!$R$27:$S$32,'総括表（土工事）'!$H162,"
                      "'仮配（舗'!$T$27:$U$32)"),
             ("P167", "=SUMIF('仮配（舗'!$R$36:$S$39,'総括表（土工事）'!$H167,"
-                     "'仮配（舗'!$T$36:$U$39)")):
+                     "'仮配（舗'!$T$36:$U$39)"),
+            ("Q156", "=IF('総括表（土工事）'!E156=\"再生砕石\","
+                     "SUMIF('給水(舗'!$R$26:$S$30,'総括表（土工事）'!$H156,'給水(舗'!$T$26:$U$30),"
+                     "IF(E156=\"粒調砕石\","
+                     "SUMIF('給水(舗'!$W$26:$X$30,'総括表（土工事）'!$H156,'給水(舗'!$Y$26:$Z$30),"
+                     "\"手入力\"))")):
         r = int(cell[1:])
         g = written.get((r, cell[0]), "")
         mark = "一致" if g == expect else f"違う（{g}）"

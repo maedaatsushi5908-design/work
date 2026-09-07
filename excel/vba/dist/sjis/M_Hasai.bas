@@ -162,6 +162,34 @@ Private Const FUKKYU_SIDE_MAP As String = "4=歩道|5=車道|10=車道"
 '   P167 = SUMIF('仮配（舗'!$R$36:$S$39,'総括表（土工事）'!$H167,'仮配（舗'!$T$36:$U$39)
 Private Const FUKKYU_BLOCK2 As String = "□仮復旧工"
 
+' 先行路盤（材料名で選ぶ）。総括表の副見出しは「先行路盤」だけ
+' （発生土でも再使用でもない）。厚さでは選べず、**材料名（E列）**で
+' 転記元の枠（種別）を選ぶ。当てはまらない材料は自動化できる転記元が
+' 無いので、式の中に直接「手入力」と書く。
+'
+'   Q156 = IF('総括表（土工事）'!E156="再生砕石",
+'              SUMIF('給水(舗'!$R$26:$S$30,'総括表（土工事）'!$H156,'給水(舗'!$T$26:$U$30),
+'              IF(E156="粒調砕石",
+'                 SUMIF('給水(舗'!$W$26:$X$30,'総括表（土工事）'!$H156,'給水(舗'!$Y$26:$Z$30),
+'                 "手入力"))
+'
+' 転記元の枠は種別が2つ（給水(舗 は「再生」「粒調」、管工は「再生砕石」
+' 「粒調砕石」とラベルの書き方が違う）。式に書く比較文字列は総括表の
+' 材料名の書き方（ZENKOURO_MATERIALS）にそろえ、転記元の枠はラベルが
+' その材料名に含まれるかどうかで選ぶ（「再生」は「再生砕石」に含まれる）。
+' マクロは材料ごとに式を書き分けず、**全部の行に同じ式**（行番号だけ違う）
+' を入れ、どの枠を使うかは Excel 側の IF に任せる（この工事では
+' 156～161 行のどれに入れても正しく分岐する）。
+' 見出しは「（発生土）」「（再使用）」と違って括弧が無いので、部分一致だと
+' その2つを拾ってしまう。括弧が続かないものだけを見出しとして採る。
+Private Const ZENKOURO_LABEL As String = "先行路盤"
+Private Const ZENKOURO_BLOCK As String = "□先行路盤"
+
+' 式に書く材料名（総括表側の書き方）。この順で先に一致した方を外側の
+' IF にする。転記元の枠のラベル（再生／粒調 など）がこの材料名に
+' 含まれていれば、その枠を使う。工事によって材料が変わるなら書き直すこと。
+Private Const ZENKOURO_MATERIALS As String = "再生砕石|粒調砕石"
+
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
 
@@ -329,7 +357,7 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                 ok = Not IsTextCell(thkCell)
             ElseIf sect = CUT_LABEL Then
                 ok = IsTextCell(thkCell)
-            ElseIf sect = GENDO_LABEL Or sect = FUKKYU_LABEL Then
+            ElseIf sect = GENDO_LABEL Or sect = FUKKYU_LABEL Or sect = ZENKOURO_LABEL Then
                 Dim gCol As Long
                 For gCol = thkCol - 1 To 1 Step -1
                     Set thkCell = ws.Cells(r, gCol).MergeArea.Cells(1, 1)
@@ -343,10 +371,10 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                 ok = (Len(anchor) > 0)
             End If
 
-            ' 殻運搬・先行路盤（発生土）・仮復旧は種別（As/Co）の欄が無いので、
-            ' そこは問わない
+            ' 殻運搬・先行路盤（発生土）・仮復旧・先行路盤（材料名）は種別
+            ' （As/Co）の欄が無いので、そこは問わない
             If sect <> KARA_LABEL And sect <> GENDO_LABEL And sect <> FUKKYU_LABEL _
-               And Len(kind) = 0 Then ok = False
+               And sect <> ZENKOURO_LABEL And Len(kind) = 0 Then ok = False
 
             If ok Then
                 thkRef = "$" & ColLetter(thkCell.Column) & thkCell.Row
@@ -368,6 +396,8 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                             f = GendoRef(srcs(i), ws.Name, thkRef, note)
                         ElseIf sect = FUKKYU_LABEL Then
                             f = FukkyuRef(srcs(i), ws.Name, thkRef, CDbl(thkCell.Value), note)
+                        ElseIf sect = ZENKOURO_LABEL Then
+                            f = ZenkouroRef(srcs(i), ws.Name, thkRef, r, note)
                         Else
                             f = KaraRef(srcs(i), anchor, grp, note)
                         End If
@@ -874,6 +904,168 @@ Private Function FukkyuBlock2(ByVal sn As String, ByRef r0 As Long, ByRef r1 As 
 
     mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
     FukkyuBlock2 = True
+End Function
+
+'------------------------------------------------------------------
+' 先行路盤（材料名で選ぶ）の1セル分。厚さでは選べないので、材料名（E列）
+' が枠のラベルと一致するかを式そのものに書く（マクロ側では材料名を
+' 見ない。どの行に入れても同じ式でよい）。
+'
+'   =IF('総括表（土工事）'!E156="再生砕石",SUMIF(…),IF(E156="粒調砕石",SUMIF(…),"手入力"))
+'
+' 最初の条件だけ総括表のシート名を付け、2つ目以降は付けない
+' （指示された式のとおり。同じシート内の参照なので付けなくても同じ）。
+' 枠に無い材料は転記元が無いので、そのまま文字列「手入力」を返す
+' （見送りではなく、Excel 側で「手入力」と表示される式を入れる）。
+'------------------------------------------------------------------
+Private Function ZenkouroRef(ByVal sn As String, ByVal tName As String, _
+                             ByVal thkRef As String, ByVal r As Long, _
+                             ByRef note As String) As String
+    Dim pairs As String, r0 As Long, r1 As Long, arr As Variant, a As Variant
+    Dim i As Long, j As Long, crit As String, matRef As String, matBare As String
+    Dim out As String, cond As String, mats As Variant, mat As String, kindLabel As String
+    Dim terms() As String, firstIdx As Long
+
+    If Not ZenkouroBlock(sn, pairs, r0, r1) Then Exit Function
+
+    matRef = SheetRef(tName) & "E" & r
+    matBare = "E" & r
+    crit = SheetRef(tName) & thkRef
+    arr = Split(pairs, "|")
+    mats = Split(ZENKOURO_MATERIALS, "|")
+    ReDim terms(UBound(mats))
+
+    ' 総括表の材料名（ZENKOURO_MATERIALS の書き方）ごとに、転記元の
+    ' どの枠が対応するかを探す。枠のラベル（再生／粒調 など）が材料名に
+    ' 含まれていれば、その枠を使う
+    firstIdx = -1
+    For j = 0 To UBound(mats)
+        mat = CStr(mats(j))
+        For i = 0 To UBound(arr)
+            a = Split(CStr(arr(i)), ",")
+            kindLabel = CStr(a(0))
+            If InStr(mat, kindLabel) > 0 Then
+                terms(j) = "SUMIF(" & SheetRef(sn) & Rng(CLng(a(1)), CLng(a(2)), r0, r1) & "," & _
+                           crit & "," & SheetRef(sn) & Rng(CLng(a(3)), CLng(a(4)), r0, r1) & ")"
+                If firstIdx = -1 Then firstIdx = j
+                Exit For
+            End If
+        Next i
+    Next j
+    If firstIdx = -1 Then Exit Function
+
+    out = Chr$(34) & "手入力" & Chr$(34)
+    For j = UBound(mats) To 0 Step -1
+        If Len(terms(j)) > 0 Then
+            cond = IIf(j = firstIdx, matRef, matBare)
+            out = "IF(" & cond & "=" & Chr$(34) & CStr(mats(j)) & Chr$(34) & "," & _
+                  terms(j) & "," & out & ")"
+        End If
+    Next j
+    ZenkouroRef = "=" & out
+End Function
+
+' 先行路盤（材料名）の転記元ブロック位置。同じシートを何度も探さないよう覚えておく
+Private Function ZenkouroBlock(ByVal sn As String, ByRef pairs As String, _
+                               ByRef r0 As Long, ByRef r1 As Long) As Boolean
+    Dim ws As Worksheet, r As Long, c As Long, sect As Long, v As String
+    Dim key As String, cached As String, a As Variant
+
+    key = "ZENKOURO|" & sn
+    If mBlock Is Nothing Then Set mBlock = CreateObject("Scripting.Dictionary")
+    If mBlock.Exists(key) Then
+        cached = mBlock(key)
+        If Len(cached) = 0 Then Exit Function
+        a = Split(cached, ";")
+        If UBound(a) < 2 Then Exit Function
+        r0 = CLng(a(0)): r1 = CLng(a(1)): pairs = CStr(a(2))
+        ZenkouroBlock = True
+        Exit Function
+    End If
+    mBlock(key) = ""
+
+    Set ws = FindSheet(sn)
+    If ws Is Nothing Then Exit Function
+
+    ' 「先行路盤（発生土）」「先行路盤（再使用）」は括弧が続くので除く。
+    ' 仮配（舗・管工などにある「…No.2」も避ける（GendoBlock と同じ理由）
+    For r = 1 To 60
+        For c = 1 To 60
+            v = Norm(ws.Cells(r, c).Value)
+            If InStr(v, Norm(ZENKOURO_BLOCK)) > 0 And InStr(v, Norm("先行路盤（")) = 0 _
+               And InStr(v, "NO.2") = 0 Then
+                sect = r
+                Exit For
+            End If
+        Next c
+        If sect > 0 Then Exit For
+    Next r
+    If sect = 0 Then Exit Function
+
+    If Not ScanZenkouroHeader(ws, sect, r0, r1, pairs) Then Exit Function
+
+    mBlock(key) = r0 & ";" & r1 & ";" & pairs
+    ZenkouroBlock = True
+End Function
+
+'------------------------------------------------------------------
+' 並び －「種別・路盤厚｜合 計」が2枠あり、種別がラベル名そのもの
+' （給水(舗 は「再生」「粒調」、管工は「再生砕石」「粒調砕石」）。
+' その1と似ているが、種別が As/Co ではなく資材名なので、枠ごとに
+' ラベルをそのまま持ち帰る（呼び出し側で総括表の材料名と比べる）。
+'------------------------------------------------------------------
+Private Function ScanZenkouroHeader(ByVal ws As Worksheet, ByVal sect As Long, _
+                                    ByRef r0 As Long, ByRef r1 As Long, _
+                                    ByRef pairs As String) As Boolean
+    Dim r As Long, c As Long, hdr As Long, v As String, want As String
+    Dim kinds As String, totals As String, kArr As Variant, tArr As Variant
+    Dim i As Long, kc As Long, sc As Long, kindLabel As String, mc As Range
+    Dim tw As Long, sw As Long
+
+    For r = sect + 1 To sect + 3
+        kinds = "": totals = ""
+        For c = 1 To 60
+            v = Norm(ws.Cells(r, c).Value)
+            If v = Norm("種別・路盤厚") Then kinds = kinds & c & ","
+            If v = Norm("合 計") Then totals = totals & c & ","
+        Next c
+        If Len(kinds) > 0 And Len(totals) > 0 Then
+            hdr = r
+            Exit For
+        End If
+    Next r
+    If hdr = 0 Then Exit Function
+
+    kArr = Split(Left$(kinds, Len(kinds) - 1), ",")
+    tArr = Split(Left$(totals, Len(totals) - 1), ",")
+
+    r0 = hdr + 1
+    want = Norm(ws.Cells(r0, CLng(kArr(0))).Value)
+    If Len(want) = 0 Then Exit Function
+    r1 = r0 - 1
+    For r = r0 To r0 + 40
+        If Norm(ws.Cells(r, CLng(kArr(0))).Value) <> want Then Exit For
+        r1 = r
+    Next r
+    If r1 < r0 Then Exit Function
+
+    pairs = ""
+    For i = 0 To UBound(kArr)
+        kc = CLng(kArr(i))
+        sc = NextTotal(tArr, kc)
+        If sc = 0 Then GoTo NextKind
+        kindLabel = Trim$(CStr(ws.Cells(r0, kc).Value))
+        If Len(kindLabel) = 0 Then GoTo NextKind
+        Set mc = ws.Cells(r0, kc + 1).MergeArea
+        tw = mc.Columns.Count
+        If tw < 1 Then tw = 1
+        sw = MergeWide(ws, r0, sc)
+        pairs = pairs & IIf(Len(pairs) = 0, "", "|") & _
+                kindLabel & "," & (kc + 1) & "," & tw & "," & sc & "," & sw
+NextKind:
+    Next i
+    If Len(pairs) = 0 Then Exit Function
+    ScanZenkouroHeader = True
 End Function
 
 ' 厚さ(cm) → 車道/歩道。号工の候補一覧は車道・歩道で別々に詰めて並ぶため、
@@ -1440,6 +1632,10 @@ Private Function SectionOf(ByVal ws As Worksheet, ByVal r As Long, _
         ' 「仮復旧」は左端の「舗装仮復旧」自体にも含まれる文字なので、
         ' whole の部分一致では区別できない。副見出しの完全一致で見分ける
         SectionOf = FUKKYU_LABEL
+    ElseIf HasExactLabel(ws, r, firstCol, ZENKOURO_LABEL) Then
+        ' 「先行路盤」も同じ理由で完全一致で見分ける（先行路盤（発生土）の
+        ' 副見出しは「先行路盤（発生土）」で、これとは文字が違うので区別できる）
+        SectionOf = ZENKOURO_LABEL
     ElseIf Len(KaraAnchorOf(head, whole)) > 0 Then
         SectionOf = KARA_LABEL
     End If
