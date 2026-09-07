@@ -121,7 +121,7 @@ Private Const KARA_MAP As String = _
 ' マクロには推測させず、この工事で確かめた行の対応（総括表の行→
 ' 仮配（舗 のセル）をそのまま書く。
 Private Const KARA_P_SRC As String = "仮配（舗"
-Private Const KARA_P_MAP As String = "83=T20|85=T21|87=T22|89=T23|91=Y20|92=Y21"
+Private Const KARA_P_MAP As String = "83=T20|85=T21|87=T22|89=T23|91=Y20|93=Y21"
 
 ' 先行路盤（発生土）。総括表の左端は「舗装仮復旧」で、同じ材料欄に
 ' 先行路盤（発生土 以外）・仮復旧（再生Asなど）も並ぶので、副見出し
@@ -391,11 +391,7 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                     Set cel = ws.Cells(r, ColNum(cols(i)))
                     Dim isTarget As Boolean
                     If sect = KARA_LABEL Then
-                        ' 殻運搬は薄橙も入力セル。仮配（舗 の現場→処分地は
-                        ' KARA_P_MAP に載っている行なら、色が付いていなくても
-                        ' 書く（P92 のように塗り分けが漏れている行があるため）
-                        isTarget = IsSubCell(cel) Or _
-                            (srcs(i) = KARA_P_SRC And KaraPHasRow(r))
+                        isTarget = IsSubCell(cel)     ' 殻運搬は薄橙も入力セル
                     Else
                         isTarget = IsInputCell(cel)
                     End If
@@ -1507,20 +1503,6 @@ Private Function KaraRef(ByVal sn As String, ByVal anchor As String, _
     End If
 
     note = sn & " に「" & Flat(label) & "」の行がありません"
-End Function
-
-' r が KARA_P_MAP に載っている行かどうか
-Private Function KaraPHasRow(ByVal r As Long) As Boolean
-    Dim p As Variant, kv As Variant
-    For Each p In Split(KARA_P_MAP, "|")
-        kv = Split(CStr(p), "=")
-        If UBound(kv) = 1 Then
-            If CLng(kv(0)) = r Then
-                KaraPHasRow = True
-                Exit Function
-            End If
-        End If
-    Next p
 End Function
 
 ' 仮配（舗 の殻運搬（現場→処分地）専用：総括表の行番号から KARA_P_MAP を

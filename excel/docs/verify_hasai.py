@@ -45,7 +45,7 @@ KARA_MAP = ("殻運搬>現場+仮置場>□As殻Co殻運搬（|"
 # マクロには推測させず、この工事で確かめた行の対応（総括表の行→
 # 仮配（舗 のセル）をそのまま書く。
 KARA_P_SRC = "仮配（舗"
-KARA_P_MAP = "83=T20|85=T21|87=T22|89=T23|91=Y20|92=Y21"
+KARA_P_MAP = "83=T20|85=T21|87=T22|89=T23|91=Y20|93=Y21"
 GENDO_LABEL = "先行路盤（発生土）"    # 左端は「舗装仮復旧」で共通。副見出しで見分ける
 GENDO_BLOCK = "□先行路盤（発生土）"
 GENDO_BLOCK2 = "□先行路盤（再使用）"    # 試掘（舗50 などの、もう1つの転記元
@@ -777,15 +777,6 @@ def kara_rows(wb, sn, anchor):
     return _cache[key]
 
 
-def kara_p_has_row(r):
-    """r が KARA_P_MAP に載っている行かどうか（VBA の KaraPHasRow）"""
-    for p in KARA_P_MAP.split("|"):
-        kv = p.split("=")
-        if len(kv) == 2 and int(kv[0]) == r:
-            return True
-    return False
-
-
 def kara_p_ref(r):
     """仮配（舗 の殻運搬（現場→処分地）専用：総括表の行番号から KARA_P_MAP を
     そのまま引く（VBA の KaraPRef）"""
@@ -928,14 +919,8 @@ def main():
         if not kd and sect not in (KARA_LABEL, GENDO_LABEL, FUKKYU_LABEL, ZENKOURO_LABEL):
             continue
         for cl, sn in pairs:
-            if sect == KARA_LABEL:
-                # 仮配（舗 の現場→処分地は KARA_P_MAP に載っている行なら、
-                # 色が付いていなくても書く（P92 のように塗り分けが漏れている
-                # 行があるため）
-                ok = is_sub_cell(ws, r, ci(cl)) or \
-                    (sn == KARA_P_SRC and kara_p_has_row(r))
-            else:
-                ok = is_input_cell(ws, r, ci(cl))
+            ok = is_sub_cell(ws, r, ci(cl)) if sect == KARA_LABEL \
+                else is_input_cell(ws, r, ci(cl))
             if not ok:
                 continue
             if sect == SECTION_LABEL:
@@ -1023,7 +1008,7 @@ def main():
                      "\"手入力\"))"),
             ("P83", "='仮配（舗'!T20"), ("P85", "='仮配（舗'!T21"),
             ("P87", "='仮配（舗'!T22"), ("P89", "='仮配（舗'!T23"),
-            ("P91", "='仮配（舗'!Y20"), ("P92", "='仮配（舗'!Y21")):
+            ("P91", "='仮配（舗'!Y20"), ("P93", "='仮配（舗'!Y21")):
         r = int(cell[1:])
         g = written.get((r, cell[0]), "")
         mark = "一致" if g == expect else f"違う（{g}）"
