@@ -587,7 +587,7 @@ Private Function GendoBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lo
                             ByRef thkCol As Long, ByRef thkWide As Long, _
                             ByRef sumCol As Long, ByRef sumWide As Long) As Boolean
     Dim ws As Worksheet, r As Long, c As Long, sect As Long
-    Dim key As String, cached As String, a As Variant
+    Dim key As String, cached As String, a As Variant, v As String
 
     key = "GENDO|" & sn
     If mBlock Is Nothing Then Set mBlock = CreateObject("Scripting.Dictionary")
@@ -607,43 +607,40 @@ Private Function GendoBlock(ByVal sn As String, ByRef r0 As Long, ByRef r1 As Lo
     Set ws = FindSheet(sn)
     If ws Is Nothing Then Exit Function
 
-    For r = 1 To 60
-        For c = 1 To 60
-            If InStr(Norm(ws.Cells(r, c).Value), Norm(GENDO_BLOCK)) > 0 Then
-                sect = r
-                Exit For
-            End If
-        Next c
-        If sect > 0 Then Exit For
-    Next r
-    If sect > 0 Then
+    ' 見出しの文字（□先行路盤（発生土）／□先行路盤（再使用））と、
+    ' 並びの形（その3／その7）の組み合わせは工事・シートによって違う
+    ' （仮配（舗 は見出しが「発生土」なのに並びは「その7」）ので、
+    ' 見出し2種 × 並び2種を順に試す。
+    ' 仮配（舗 には見出しがもう1つ（…No.2）あるので、そちらは飛ばす。
+    ' No.2 は別ブック構成（No.1 と No.2 に分けて配管する場合）用の予備で、
+    ' この工事は No.1（無印）側だけを使う。
+    Dim anchor As Variant
+    For Each anchor In Array(GENDO_BLOCK, GENDO_BLOCK2)
+        sect = 0
+        For r = 1 To 60
+            For c = 1 To 60
+                v = Norm(ws.Cells(r, c).Value)
+                If InStr(v, Norm(CStr(anchor))) > 0 And InStr(v, "NO.2") = 0 Then
+                    sect = r
+                    Exit For
+                End If
+            Next c
+            If sect > 0 Then Exit For
+        Next r
+        If sect = 0 Then GoTo NextAnchor
+
         If ScanGendoHeader(ws, sect, r0, r1, thkCol, thkWide, sumCol, sumWide) Then
             mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
             GendoBlock = True
             Exit Function
         End If
-    End If
-
-    ' 給水2度の見出しが無いシート（試掘など）は、もう1つの転記元
-    ' 「□先行路盤（再使用）」を試す
-    sect = 0
-    For r = 1 To 60
-        For c = 1 To 60
-            If InStr(Norm(ws.Cells(r, c).Value), Norm(GENDO_BLOCK2)) > 0 Then
-                sect = r
-                Exit For
-            End If
-        Next c
-        If sect > 0 Then Exit For
-    Next r
-    If sect = 0 Then Exit Function
-
-    If Not ScanSaiyouHeader(ws, sect, r0, r1, thkCol, sumCol) Then Exit Function
-    thkWide = 1
-    sumWide = 1
-
-    mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
-    GendoBlock = True
+        If ScanSaiyouHeader(ws, sect, r0, r1, thkCol, thkWide, sumCol, sumWide) Then
+            mBlock(key) = r0 & ";" & r1 & ";" & thkCol & ";" & thkWide & ";" & sumCol & ";" & sumWide
+            GendoBlock = True
+            Exit Function
+        End If
+NextAnchor:
+    Next anchor
 End Function
 
 '------------------------------------------------------------------
@@ -708,9 +705,11 @@ End Function
 '------------------------------------------------------------------
 Private Function ScanSaiyouHeader(ByVal ws As Worksheet, ByVal sect As Long, _
                                   ByRef r0 As Long, ByRef r1 As Long, _
-                                  ByRef thkCol As Long, ByRef sumCol As Long) As Boolean
+                                  ByRef thkCol As Long, ByRef thkWide As Long, _
+                                  ByRef sumCol As Long, ByRef sumWide As Long) As Boolean
     Dim r As Long, c As Long, hdr As Long, v As String, want As String
     Dim kinds As String, totals As String, kArr As Variant, tArr As Variant, kc As Long
+    Dim mc As Range
 
     For r = sect + 1 To sect + 3
         kinds = "": totals = ""
@@ -743,6 +742,14 @@ Private Function ScanSaiyouHeader(ByVal ws As Worksheet, ByVal sect As Long, _
         r1 = r
     Next r
     If r1 < r0 Then Exit Function
+
+    ' 厚さ・合計とも幅は転記元の結合セルに合わせる（仮配（舗 は R:S・T:U と
+    ' 2列結合。試掘は結合が無く1列）。SUMIF は条件範囲と同じ形の分しか
+    ' 見ないので、広くても結果は変わらない。
+    Set mc = ws.Cells(r0, thkCol).MergeArea
+    thkWide = mc.Columns.Count
+    If thkWide < 1 Then thkWide = 1
+    sumWide = MergeWide(ws, r0, sumCol)
 
     ScanSaiyouHeader = True
 End Function

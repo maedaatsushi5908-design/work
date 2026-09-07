@@ -294,9 +294,10 @@ def scan_gendo_header(ws, sect):
 
 def scan_saiyou_header(ws, sect):
     """先行路盤（再使用）の並び － その1と同じ形だが見出しが「路盤厚」で、
-    種別は As/Co ではなく「再使用」の1種類だけ（試掘（舗50 など）（VBA の
+    種別は As/Co ではなく1種類だけ（試掘（舗50 など・仮配（舗）（VBA の
     ScanSaiyouHeader）。種別の欄が先頭行と同じ文字で続くところまでを行の
-    範囲とする。
+    範囲とする。厚さ・合計とも幅は転記元の結合セルに合わせる（仮配（舗 は
+    2列結合、試掘は結合なしの1列）。
     """
     hdr, kinds, totals = 0, [], []
     for r in range(sect + 1, sect + 4):
@@ -318,6 +319,7 @@ def scan_saiyou_header(ws, sect):
     if not nxt:
         return None
     sc = min(nxt)
+    thk_col = kc + 1
 
     r0 = hdr + 1
     want = norm(ws.cell(r0, kc).value)
@@ -331,11 +333,19 @@ def scan_saiyou_header(ws, sect):
     if r1 < r0:
         return None
 
-    return (r0, r1, kc + 1, 1, sc, 1)
+    thk_wide = merge_wide(ws, r0, thk_col)
+    sum_wide = merge_wide(ws, r0, sc)
+    return (r0, r1, thk_col, thk_wide, sc, sum_wide)
 
 
 def gendo_block(wb, sn):
-    """先行路盤（発生土）の転記元。(r0, r1, 厚さ列, 厚さ幅, 合計列, 合計幅)（VBA の GendoBlock）"""
+    """先行路盤（発生土）の転記元。(r0, r1, 厚さ列, 厚さ幅, 合計列, 合計幅)（VBA の GendoBlock）
+
+    見出しの文字（□先行路盤（発生土）／□先行路盤（再使用））と並びの形
+    （その3／その7）の組み合わせは工事・シートによって違う（仮配（舗 は
+    見出しが「発生土」なのに並びは「その7」）ので、見出し2種 × 並び2種を
+    順に試す。
+    """
     key = ("GENDO", sn)
     if key in _cache:
         return _cache[key]
@@ -343,35 +353,26 @@ def gendo_block(wb, sn):
     if sn not in wb.sheetnames:
         return None
     ws = wb[sn]
-    sect = 0
-    for r in range(1, 61):
-        for c in range(1, 61):
-            if norm(GENDO_BLOCK) in norm(ws.cell(r, c).value):
-                sect = r
+
+    # 仮配（舗 には見出しがもう1つ（…No.2）あるので、そちらは飛ばす。
+    # No.2 は別ブック構成用の予備で、この工事は No.1（無印）側だけを使う。
+    for anchor in (GENDO_BLOCK, GENDO_BLOCK2):
+        sect = 0
+        for r in range(1, 61):
+            for c in range(1, 61):
+                v = norm(ws.cell(r, c).value)
+                if norm(anchor) in v and "NO.2" not in v:
+                    sect = r
+                    break
+            if sect:
                 break
-        if sect:
-            break
-    if sect:
-        out = scan_gendo_header(ws, sect)
+        if not sect:
+            continue
+        out = scan_gendo_header(ws, sect) or scan_saiyou_header(ws, sect)
         if out:
             _cache[key] = out
             return out
-
-    # 給水2度の見出しが無いシート（試掘など）は、もう1つの転記元
-    # 「□先行路盤（再使用）」を試す
-    sect = 0
-    for r in range(1, 61):
-        for c in range(1, 61):
-            if norm(GENDO_BLOCK2) in norm(ws.cell(r, c).value):
-                sect = r
-                break
-        if sect:
-            break
-    if not sect:
-        return None
-    out = scan_saiyou_header(ws, sect)
-    _cache[key] = out
-    return out
+    return None
 
 
 def gendo_ref(wb, sn, tname, thk_ref):
@@ -803,7 +804,9 @@ def main():
             ("O168", "=SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$H168,給水2度!$L$4:$N$6)"),
             ("O169", "=SUMIF(給水2度!$K$4:$K$6,'総括表（土工事）'!$H169,給水2度!$L$4:$N$6)"),
             ("J162", "=SUMIF('試掘（舗50'!$O$26:$O$31,'総括表（土工事）'!$H162,"
-                     "'試掘（舗50'!$P$26:$P$31)")):
+                     "'試掘（舗50'!$P$26:$P$31)"),
+            ("P162", "=SUMIF('仮配（舗'!$R$27:$S$32,'総括表（土工事）'!$H162,"
+                     "'仮配（舗'!$T$27:$U$32)")):
         r = int(cell[1:])
         g = written.get((r, cell[0]), "")
         mark = "一致" if g == expect else f"違う（{g}）"
