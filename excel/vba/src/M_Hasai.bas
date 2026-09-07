@@ -337,7 +337,7 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                         ElseIf sect = GENDO_LABEL Then
                             f = GendoRef(srcs(i), ws.Name, thkRef, note)
                         ElseIf sect = FUKKYU_LABEL Then
-                            f = FukkyuRef(srcs(i), ws.Name, thkRef, CStr(thkCell.Text), note)
+                            f = FukkyuRef(srcs(i), ws.Name, thkRef, CDbl(thkCell.Value), note)
                         Else
                             f = KaraRef(srcs(i), anchor, grp, note)
                         End If
@@ -671,7 +671,7 @@ End Function
 ' どちらの側かは FUKKYU_SIDE_MAP（厚さ→車道/歩道）で決める。
 '------------------------------------------------------------------
 Private Function FukkyuRef(ByVal sn As String, ByVal tName As String, _
-                           ByVal thkRef As String, ByVal thickText As String, _
+                           ByVal thkRef As String, ByVal thick As Double, _
                            ByRef note As String) As String
     Dim r0 As Long, r1 As Long, pairs As String, side As String
     Dim arr As Variant, a As Variant, crit As String, idx As Long
@@ -679,9 +679,9 @@ Private Function FukkyuRef(ByVal sn As String, ByVal tName As String, _
     ' 給水2度以外はまだ対応が無いので黙って見送る（既存の手入力の式を残す）
     If sn <> FUKKYU_SRC Then Exit Function
 
-    side = FukkyuSide(thickText)
+    side = FukkyuSide(thick)
     If Len(side) = 0 Then
-        note = "厚さ " & thickText & " の車道/歩道が FUKKYU_SIDE_MAP にありません"
+        note = "厚さ " & thick & " の車道/歩道が FUKKYU_SIDE_MAP にありません"
         Exit Function
     End If
 
@@ -705,12 +705,16 @@ End Function
 ' 厚さ(cm) → 車道/歩道。号工の候補一覧は車道・歩道で別々に詰めて並ぶため、
 ' 同じ厚さでもどちらの側にあるかは工事ごとに違う。FUKKYU_SIDE_MAP に
 ' 書いていない厚さは空文字を返す。
-Private Function FukkyuSide(ByVal thickText As String) As String
+'
+' 厚さは数値（Value）で比べる。.Text だと表示形式次第で "4cm" のように
+' 単位が付いたり "4.0" になったりして、FUKKYU_SIDE_MAP の文字列と
+' 一致しなくなる（実際にこれで一致しない不具合が起きた）。
+Private Function FukkyuSide(ByVal thick As Double) As String
     Dim p As Variant, kv As Variant
     For Each p In Split(FUKKYU_SIDE_MAP, "|")
         kv = Split(CStr(p), "=")
         If UBound(kv) = 1 Then
-            If Trim$(CStr(kv(0))) = Trim$(thickText) Then
+            If CDbl(kv(0)) = thick Then
                 FukkyuSide = Trim$(CStr(kv(1)))
                 Exit Function
             End If

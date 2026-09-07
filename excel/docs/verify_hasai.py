@@ -331,16 +331,20 @@ def gendo_ref(wb, sn, tname, thk_ref):
             f"{q}{rng(sum_col, sum_wide, r0, r1)})"), ""
 
 
-def fukkyu_side(thick_text):
-    """厚さ(cm) → 車道/歩道（VBA の FukkyuSide）。マップに無ければ空文字"""
+def fukkyu_side(thick):
+    """厚さ(cm) → 車道/歩道（VBA の FukkyuSide）。マップに無ければ空文字
+
+    厚さは数値で比べる（VBA と同じ）。セルの表示形式（.Text 相当）だと
+    "4cm" や "4.0" のように化けて一致しなくなる不具合が実際に起きた。
+    """
     for p in FUKKYU_SIDE_MAP.split("|"):
         k, _, v = p.partition("=")
-        if k.strip() == str(thick_text).strip():
+        if float(k.strip()) == float(thick):
             return v.strip()
     return ""
 
 
-def fukkyu_ref(wb, sn, tname, thk_ref, thick_text):
+def fukkyu_ref(wb, sn, tname, thk_ref, thick):
     """仮復旧（再生As）の1セル分（VBA の FukkyuRef）
 
     転記元は舗装版破砕と同じ「車道/歩道 5号工」の枠を使うが、車道＋歩道を
@@ -350,9 +354,9 @@ def fukkyu_ref(wb, sn, tname, thk_ref, thick_text):
     """
     if sn != FUKKYU_SRC:
         return "", ""
-    side = fukkyu_side(thick_text)
+    side = fukkyu_side(thick)
     if not side:
-        return "", f"厚さ {thick_text} の車道/歩道が FUKKYU_SIDE_MAP にありません"
+        return "", f"厚さ {thick} の車道/歩道が FUKKYU_SIDE_MAP にありません"
     b = hasai_block(wb, sn)
     if not b:
         return "", f"{sn} に {BLOCK_LABEL} のブロックがありません"
@@ -676,7 +680,7 @@ def main():
             elif sect == GENDO_LABEL:
                 f, note = gendo_ref(wb, sn, ws.title, tr)
             elif sect == FUKKYU_LABEL:
-                f, note = fukkyu_ref(wb, sn, ws.title, tr, str(ws.cell(mr, mc).value))
+                f, note = fukkyu_ref(wb, sn, ws.title, tr, ws.cell(mr, mc).value)
             else:
                 f, note = kara_ref(wb, sn, anchor, grp)
             if not f:
