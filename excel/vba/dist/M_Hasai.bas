@@ -210,6 +210,29 @@ Private Const ZENKOURO_BLOCK As String = "□先行路盤"
 ' 含まれていれば、その枠を使う。工事によって材料が変わるなら書き直すこと。
 Private Const ZENKOURO_MATERIALS As String = "再生砕石|粒調砕石"
 
+' 管路掘削・管路埋戻（機械施工）。厚さも種別（As/Co）も無い、口径だけで
+' 分かれる工種。「床掘」「土砂運搬（現場→仮置場）」「仮置土積込」
+' 「埋戻し工」それぞれに、口径ごと（PE50・75・400・600）の予備行が
+' 1行ずつ並ぶ。左端は「管路掘削」「管路埋戻」の2種類あるが、どちらも
+' 「管路」の文字を含むので、それで見分ける。
+Private Const DOBOKU_LABEL As String = "管路"
+
+' 列 → 転記元シート。この工種の転記元は 管工（土量2）50/75/400/600 で、
+' COL_MAP の 管工（舗50 などとは別のシートなので、列とシートの対応を
+' ここに別で持つ。
+Private Const DOBOKU_SRC_MAP As String = _
+    "R=管工（土量2）50|S=管工（土量2）75|T=管工（土量2）400|U=管工（土量2）600"
+
+' 「列+行」→ 転記元セル（AE列）の対応。この工事で確かめた4つの枠
+' （床掘＝AE16、土砂運搬（現場→仮置場）＝AE19、仮置土積込＝AE24、
+' 埋戻し工＝AE33）を、口径の順（R=50・S=75・T=400・U=600）に
+' 1行ずつ割り当てる。
+Private Const DOBOKU_MAP As String = _
+    "R107=AE16|S108=AE16|T109=AE16|U110=AE16|" & _
+    "R113=AE19|S114=AE19|T115=AE19|U116=AE19|" & _
+    "R118=AE24|S119=AE24|T120=AE24|U121=AE24|" & _
+    "R129=AE33|S130=AE33|T131=AE33|U132=AE33"
+
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
 
@@ -384,6 +407,10 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                     If IsNum(thkCell.Value) Then Exit For
                 Next gCol
                 ok = (gCol >= 1) And IsNum(thkCell.Value)
+            ElseIf sect = DOBOKU_LABEL Then
+                ' 厚さも摘要も無く、DOBOKU_MAP に載っている「列+行」かどうかで
+                ' 決まる（列ごとの判定は isTarget 側）
+                ok = True
             Else
                 ' 摘要は As / Co のある欄。無い行（舗装版破砕 など）は空のまま
                 grp = GroupLabel(ws, r, firstCol)
@@ -391,10 +418,11 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                 ok = (Len(anchor) > 0)
             End If
 
-            ' 殻運搬・先行路盤（発生土）・仮復旧・先行路盤（材料名）は種別
-            ' （As/Co）の欄が無いので、そこは問わない
+            ' 殻運搬・先行路盤（発生土）・仮復旧・先行路盤（材料名）・
+            ' 管路掘削/管路埋戻は種別（As/Co）の欄が無いので、そこは問わない
             If sect <> KARA_LABEL And sect <> GENDO_LABEL And sect <> FUKKYU_LABEL _
-               And sect <> ZENKOURO_LABEL And Len(kind) = 0 Then ok = False
+               And sect <> ZENKOURO_LABEL And sect <> DOBOKU_LABEL _
+               And Len(kind) = 0 Then ok = False
 
             If ok Then
                 thkRef = "$" & ColLetter(thkCell.Column) & thkCell.Row
@@ -418,6 +446,8 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                             f = FukkyuRef(srcs(i), ws.Name, thkRef, CDbl(thkCell.Value), note)
                         ElseIf sect = ZENKOURO_LABEL Then
                             f = ZenkouroRef(srcs(i), ws.Name, thkRef, r, note)
+                        ElseIf sect = DOBOKU_LABEL Then
+                            f = DobokuRef(cols(i), r)
                         Else
                             f = KaraRef(srcs(i), anchor, grp, r, note)
                         End If
@@ -431,7 +461,8 @@ Private Function WriteAll(ByVal ws As Worksheet, ByRef cols() As String, _
                             recs(n).Sect = sect
                             recs(n).Thick = IIf(Len(grp) > 0, grp, CStr(thkCell.Text))
                             recs(n).Kind = kind
-                            recs(n).Src = srcs(i)
+                            recs(n).Src = IIf(sect = DOBOKU_LABEL, _
+                                MapLookup(DOBOKU_SRC_MAP, cols(i)), srcs(i))
                             recs(n).OldV = NumOrEmpty(cel)
                             On Error Resume Next
                             cel.Formula = f
@@ -1549,6 +1580,33 @@ Private Function KaraDirectRef(ByVal sn As String, ByVal rows_ As String, _
     Next p
 End Function
 
+' 「キー=値|キー=値|…」から key にちょうど一致する値を取り出す。
+' 無ければ空文字列（DOBOKU_SRC_MAP・DOBOKU_MAP で使う）
+Private Function MapLookup(ByVal mapStr As String, ByVal key As String) As String
+    Dim p As Variant, kv As Variant
+    For Each p In Split(mapStr, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            If CStr(kv(0)) = key Then
+                MapLookup = CStr(kv(1))
+                Exit Function
+            End If
+        End If
+    Next p
+End Function
+
+' 管路掘削・管路埋戻（機械施工）の1セル分。列から転記元シートを、
+' 「列+行」から転記元セルを、それぞれ DOBOKU_SRC_MAP・DOBOKU_MAP で
+' 引いて数式を組み立てる。載っていない「列+行」は黙って空を返す
+Private Function DobokuRef(ByVal cl As String, ByVal r As Long) As String
+    Dim sn As String, cellRef As String
+    sn = MapLookup(DOBOKU_SRC_MAP, cl)
+    If Len(sn) = 0 Then Exit Function
+    cellRef = MapLookup(DOBOKU_MAP, cl & CStr(r))
+    If Len(cellRef) = 0 Then Exit Function
+    DobokuRef = "=" & SheetRef(sn) & cellRef
+End Function
+
 ' 改行や余分な空白を詰める。メッセージに出すときだけ使う
 Private Function Flat(ByVal v As Variant) As String
     Dim t As String
@@ -1696,6 +1754,9 @@ Private Function SectionOf(ByVal ws As Worksheet, ByVal r As Long, _
         ' 「先行路盤」も同じ理由で完全一致で見分ける（先行路盤（発生土）の
         ' 副見出しは「先行路盤（発生土）」で、これとは文字が違うので区別できる）
         SectionOf = ZENKOURO_LABEL
+    ElseIf InStr(whole, Norm(DOBOKU_LABEL)) > 0 Then
+        ' 「管路掘削」「管路埋戻」のどちらも「管路」を含むので、これで見分ける
+        SectionOf = DOBOKU_LABEL
     ElseIf Len(KaraAnchorOf(head, whole)) > 0 Then
         SectionOf = KARA_LABEL
     End If

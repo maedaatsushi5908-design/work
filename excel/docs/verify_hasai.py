@@ -65,6 +65,25 @@ FUKKYU_BLOCK2 = "□仮復旧工"    # 仮配（舗 のもう1つの転記元（
 ZENKOURO_LABEL = "先行路盤"    # 「先行路盤（発生土）」に含まれるので完全一致で見分ける
 ZENKOURO_BLOCK = "□先行路盤"    # 材料名（再生／粒調）で選ぶ、もう1つの先行路盤
 ZENKOURO_MATERIALS = "再生砕石|粒調砕石"    # 式に書く材料名（総括表側の書き方）
+
+# 管路掘削・管路埋戻（機械施工）。厚さも種別（As/Co）も無い、口径だけで
+# 分かれる工種。「床掘」「土砂運搬（現場→仮置場）」「仮置土積込」
+# 「埋戻し工」それぞれに、口径ごと（PE50・75・400・600）の予備行が
+# 1行ずつ並ぶ。左端は「管路掘削」「管路埋戻」の2種類あるが、どちらも
+# 「管路」の文字を含むので、それで見分ける。
+DOBOKU_LABEL = "管路"
+# 列 → 転記元シート。この工種の転記元は 管工（土量2）50/75/400/600 で、
+# COL_MAP の 管工（舗50 などとは別のシート。
+DOBOKU_SRC_MAP = ("R=管工（土量2）50|S=管工（土量2）75|"
+                   "T=管工（土量2）400|U=管工（土量2）600")
+# 「列+行」→ 転記元セル（AE列）の対応。この工事で確かめた4つの枠
+# （床掘＝AE16、土砂運搬（現場→仮置場）＝AE19、仮置土積込＝AE24、
+# 埋戻し工＝AE33）を、口径の順（R=50・S=75・T=400・U=600）に
+# 1行ずつ割り当てる。
+DOBOKU_MAP = ("R107=AE16|S108=AE16|T109=AE16|U110=AE16|"
+              "R113=AE19|S114=AE19|T115=AE19|U116=AE19|"
+              "R118=AE24|S119=AE24|T120=AE24|U121=AE24|"
+              "R129=AE33|S130=AE33|T131=AE33|U132=AE33")
 INPUT_COLOR = "FFFF00"
 
 
@@ -692,6 +711,9 @@ def section_of(ws, r, first_col):
     if has_exact_label(ws, r, first_col, ZENKOURO_LABEL):
         # 「先行路盤」も同じ理由で完全一致で見分ける
         return ZENKOURO_LABEL
+    if norm(DOBOKU_LABEL) in whole:
+        # 「管路掘削」「管路埋戻」のどちらも「管路」を含むので、これで見分ける
+        return DOBOKU_LABEL
     if kara_anchor_of(head, whole):
         return KARA_LABEL
     return ""
@@ -804,6 +826,29 @@ def kara_direct_ref(sn, rows_, r):
         if len(kv) == 2 and int(kv[0]) == r:
             return "=" + sheet_ref(sn) + kv[1]
     return ""
+
+
+def map_lookup(map_str, key):
+    """「キー=値|キー=値|…」から key にちょうど一致する値を取り出す。
+    無ければ空文字列（VBA の MapLookup）"""
+    for p in map_str.split("|"):
+        kv = p.split("=")
+        if len(kv) == 2 and kv[0] == key:
+            return kv[1]
+    return ""
+
+
+def doboku_ref(cl, r):
+    """管路掘削・管路埋戻（機械施工）の1セル分。列から転記元シートを、
+    「列+行」から転記元セルを、それぞれ DOBOKU_SRC_MAP・DOBOKU_MAP で
+    引いて数式を組み立てる（VBA の DobokuRef）"""
+    sn = map_lookup(DOBOKU_SRC_MAP, cl)
+    if not sn:
+        return ""
+    cell_ref = map_lookup(DOBOKU_MAP, cl + str(r))
+    if not cell_ref:
+        return ""
+    return "=" + sheet_ref(sn) + cell_ref
 
 
 def kara_ref(wb, sn, anchor, label, r):
@@ -936,7 +981,8 @@ def main():
         kd = kind_of_row(ws, r, first_col)
         # 殻運搬・先行路盤（発生土）・仮復旧・先行路盤（材料名）は種別
         # （As/Co）の欄が無いので、そこは問わない
-        if not kd and sect not in (KARA_LABEL, GENDO_LABEL, FUKKYU_LABEL, ZENKOURO_LABEL):
+        if not kd and sect not in (KARA_LABEL, GENDO_LABEL, FUKKYU_LABEL, ZENKOURO_LABEL,
+                                    DOBOKU_LABEL):
             continue
         for cl, sn in pairs:
             ok = is_sub_cell(ws, r, ci(cl)) if sect == KARA_LABEL \
@@ -953,6 +999,8 @@ def main():
                 f, note = fukkyu_ref(wb, sn, ws.title, tr, ws.cell(mr, mc).value)
             elif sect == ZENKOURO_LABEL:
                 f, note = zenkouro_ref(wb, sn, ws.title, tr, r)
+            elif sect == DOBOKU_LABEL:
+                f, note = doboku_ref(cl, r), ""
             else:
                 f, note = kara_ref(wb, sn, anchor, grp, r)
             if not f:
@@ -1043,7 +1091,10 @@ def main():
             ("T88", "='管工（舗400'!T29"), ("U88", "='管工（舗600'!T29"),
             ("T89", "='管工（舗400'!T30"), ("U89", "='管工（舗600'!T30"),
             ("T92", "='管工（舗400'!X27"), ("U92", "='管工（舗600'!X27"),
-            ("T93", "='管工（舗400'!X28"), ("U93", "='管工（舗600'!X28")):
+            ("T93", "='管工（舗400'!X28"), ("U93", "='管工（舗600'!X28"),
+            ("T109", "='管工（土量2）400'!AE16"), ("U110", "='管工（土量2）600'!AE16"),
+            ("U116", "='管工（土量2）600'!AE19"), ("U121", "='管工（土量2）600'!AE24"),
+            ("U132", "='管工（土量2）600'!AE33")):
         r = int(cell[1:])
         g = written.get((r, cell[0]), "")
         mark = "一致" if g == expect else f"違う（{g}）"
