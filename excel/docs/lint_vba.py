@@ -17,6 +17,9 @@
   6. モジュール内の手続きを、引数の数を間違えて呼んでいないか
      （引数を1つ増やしたのに古い呼び出しが残っている、など）
   7. 全角スペースがコード行に混ざっていないか
+  8. Sub / Function 名に使えない文字（全角の（）など）が混ざっていないか
+     （`Public Sub 総括表（舗装工事）の数量を転記する()` は名前に全角
+      括弧が入っていて実際に構文エラーになった）
 
     python3 excel/docs/lint_vba.py            # src と dist をまとめて
     python3 excel/docs/lint_vba.py excel/vba/src/M_Link.bas
@@ -90,6 +93,17 @@ PROC_NAME = re.compile(
     re.I,
 )
 CLOSER = re.compile(r"^\s*End\s+(Sub|Function|Property)\b", re.I)
+
+# 手続き名の全体を読み取る（PROC_NAME と違い、先頭が日本語の名前も拾う）。
+# 全角の（）などを名前に混ぜて構文エラーになる事故を見つけるためだけに使う。
+IDENT_START = r"A-Za-z_ぁ-ヿ一-鿿ｦ-ﾟ"
+IDENT_CONT = IDENT_START + "0-9"
+PROC_NAME_FULL = re.compile(
+    r"^\s*(?:Public\s+|Private\s+|Friend\s+)?(?:Static\s+)?"
+    r"(?:Sub|Function|Property(?:\s+(?:Get|Let|Set))?)\s+"
+    r"([" + IDENT_START + r"][" + IDENT_CONT + r"]*)",
+    re.I,
+)
 
 # モジュールレベルの宣言。VBA ではすべての手続きより前に置く決まりがあり、
 # 後ろに来るとコンパイルできない。モジュールを連結したときに起きやすい。
@@ -242,6 +256,20 @@ def check(path):
         if OPENER.match(code) and not re.search(r"\bDeclare\b", code, re.I):
             depth += 1
             seen_proc = True
+            # 手続き名のすぐ後ろは（空白を挟んでもよいが）半角の "(" でないと
+            # いけない。全角の（）などを名前に混ぜると VBA の構文エラーになる
+            # （実際に "総括表（舗装工事）の数量を転記する" で発生した）。
+            m = PROC_NAME_FULL.match(code)
+            if m:
+                rest = code[m.end():].lstrip()
+                if not rest.startswith("("):
+                    problems.append(
+                        (ln, "手続き名に使えない文字が含まれている可能性"
+                             "（名前の直後が半角の ( になっていない）", code[:78]))
+            else:
+                problems.append(
+                    (ln, "手続き名を読み取れません"
+                         "（先頭に使えない文字が含まれている可能性）", code[:78]))
         elif CLOSER.match(code):
             depth -= 1
 

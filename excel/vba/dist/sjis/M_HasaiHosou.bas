@@ -3,7 +3,7 @@ Attribute VB_Name = "M_HasaiHosou"
 ' 06 総括表（舗装工事） 用
 '
 ' このファイル1つだけを標準モジュールに貼り付ければ動く。
-' マクロは「総括表（舗装工事）の数量を転記する」1本。
+' マクロは「総括表舗装工事の数量を転記する」1本。
 ' 将来的には M_Hasai（総括表（土工事）用）と合わせる予定。
 '
 ' 元は excel/vba/src/ の M_HasaiHosou.bas を
@@ -19,9 +19,10 @@ Option Explicit
 ' 将来的には M_Hasai と合わせる予定だが、いまはこの1本で
 ' 総括表（舗装工事）だけを扱う。
 '
-' マクロは1本だけ。
+' マクロは1本だけ。VBA の Sub 名には（全角でも）括弧を使えないので、
+' マクロ名自体には括弧を入れていない。
 '
-'     総括表（舗装工事）の数量を転記する()
+'     総括表舗装工事の数量を転記する()
 '
 ' いまのところ対応しているのは CELL_MAP に載っている数セルだけ。
 ' 総括表（舗装工事）の「舗装版切断（舗装工事）」は、転記元
@@ -58,7 +59,7 @@ Private Const INPUT_COLOR As Long = 65535
 ' ここから M_HasaiHosou.bas
 '==================================================================
 '==================================================================
-Public Sub 総括表（舗装工事）の数量を転記する()
+Public Sub 総括表舗装工事の数量を転記する()
     Dim ws As Worksheet, srcWs As Worksheet
     Dim p As Variant, kv As Variant
     Dim addr As String, cellRef As String, f As String, msg As String
