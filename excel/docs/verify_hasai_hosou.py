@@ -42,6 +42,18 @@ HASAI_CO_NO1_SUM = "$P$12:$P$19"
 HASAI_CO_NO2_THK = "$AF$10:$AF$16"
 HASAI_CO_NO2_SUM = "$AG$10:$AG$16"
 
+# 路盤掘削・発生土処理（機械）の転記元シート名。CELL_MAP の舗装（集計）
+# とは別のシート。「(廃路盤材)路盤掘削」「(土砂)路盤掘削」
+# 「(廃路盤材)発生土処理」「(土砂)発生土処理」の各機械3行は、作業幅の
+# 区分（B<1.0／1.0≦B<2.0／2.0≦B）にそのまま対応する。63・70・83・90行目は
+# 元から手入力で正しい式が入っていたので、そこから対応を確かめて残り
+# 8個に広げた。
+DOKI_SRC = "舗装（土量）"
+DOKI_MAP = ("I61=AD18|I62=AD21|I63=AD26|"
+            "I68=AD30|I69=AD33|I70=AD36|"
+            "I81=AD43|I82=AD46|I83=AD49|"
+            "I88=AD53|I89=AD56|I90=AD59")
+
 INPUT_COLOR = "FFFF00"
 
 
@@ -116,6 +128,9 @@ def main():
     if PAVE_SRC not in wb.sheetnames:
         print(f"転記元シートが見つかりません: {PAVE_SRC}")
         return 1
+    if DOKI_SRC not in wb.sheetnames:
+        print(f"転記元シートが見つかりません: {DOKI_SRC}")
+        return 1
     ws = wb[TARGET_SHEET]
 
     written = {}
@@ -137,6 +152,13 @@ def main():
         else:
             skipped.append(addr)
 
+    for p in DOKI_MAP.split("|"):
+        addr, cell_ref = p.split("=")
+        if is_input_cell(ws, addr):
+            written[addr] = "=" + sheet_ref(DOKI_SRC) + cell_ref
+        else:
+            skipped.append(addr)
+
     ok = True
     for addr, expect in (
             ("I7", "='舗装（集計）'!M4"),
@@ -154,7 +176,13 @@ def main():
                      "+SUMIF('舗装（集計）'!$AF$10:$AF$16,14,'舗装（集計）'!$AG$10:$AG$16)"),
             ("I44", "='舗装（集計）'!M23"), ("I45", "='舗装（集計）'!M24"),
             ("I46", "='舗装（集計）'!M25"), ("I48", "='舗装（集計）'!P23"),
-            ("I49", "='舗装（集計）'!P24")):
+            ("I49", "='舗装（集計）'!P24"),
+            ("I61", "='舗装（土量）'!AD18"), ("I62", "='舗装（土量）'!AD21"),
+            ("I63", "='舗装（土量）'!AD26"), ("I68", "='舗装（土量）'!AD30"),
+            ("I69", "='舗装（土量）'!AD33"), ("I70", "='舗装（土量）'!AD36"),
+            ("I81", "='舗装（土量）'!AD43"), ("I82", "='舗装（土量）'!AD46"),
+            ("I83", "='舗装（土量）'!AD49"), ("I88", "='舗装（土量）'!AD53"),
+            ("I89", "='舗装（土量）'!AD56"), ("I90", "='舗装（土量）'!AD59")):
         g = written.get(addr, "")
         mark = "一致" if g == expect else f"違う（{g}）"
         print(f"{addr} = {expect}  … {mark}")

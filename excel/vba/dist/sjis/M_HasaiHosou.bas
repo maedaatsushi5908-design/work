@@ -51,6 +51,14 @@ Option Explicit
 '         +SUMIF('舗装（集計）'!$AC$10:$AC$16,'総括表（舗装工事）'!$H11,
 '                '舗装（集計）'!$AD$10:$AD$16)
 '
+' 路盤掘削・発生土処理（機械）の行（DOKI_MAP を参照）も直接参照。
+' 転記元は 舗装（集計） ではなく 舗装（土量）で、作業幅の区分
+' （B<1.0／1.0≦B<2.0／2.0≦B）にそのまま対応する。
+'
+'   I61 = 廃路盤材・機械・1行目 → 舗装（土量）!AD18
+'   I62 = 廃路盤材・機械・2行目 → 舗装（土量）!AD21
+'   I63 = 廃路盤材・機械・3行目 → 舗装（土量）!AD26
+'
 ' 書き込む先は、総括表で黄色く塗ってある入力セルだけ。
 '==================================================================
 
@@ -80,6 +88,26 @@ Private Const PAVE_SRC As String = "舗装（集計）"
 Private Const CELL_MAP As String = _
     "I7=M4|I8=M5|I9=P4|I10=P5|" & _
     "I44=M23|I45=M24|I46=M25|I48=P23|I49=P24"
+
+' 路盤掘削・発生土処理（機械）の転記元シート名。CELL_MAP の
+' 舗装（集計）とは別のシート。
+Private Const DOKI_SRC As String = "舗装（土量）"
+
+' 総括表のセル → 舗装（土量）のセルの対応。「(廃路盤材)路盤掘削」
+' 「(土砂)路盤掘削」「(廃路盤材)発生土処理」「(土砂)発生土処理」の
+' 各「すき取り・積込み／土砂運搬」の機械3行は、作業幅の区分
+' （B<1.0／1.0≦B<2.0／2.0≦B）にそのまま対応する。63・70・83・90行目は
+' 元から手入力で正しい式（各区分のいちばん広い「2.0≦B」）が入っていた
+' ので、そこから対応を確かめて残り8個に広げた。
+' 舗装（土量）内では同じ値が「路盤掘削」の枠（AD18・AD21・AD26）と
+' 「発生土処理」の枠（AD43・AD46・AD49、AD30・AD33・AD36 と
+' AD53・AD56・AD59）の2か所にあるが、総括表の元の式（I63=AD26・
+' I83=AD49など）に合わせて使う枠をそろえている。
+Private Const DOKI_MAP As String = _
+    "I61=AD18|I62=AD21|I63=AD26|" & _
+    "I68=AD30|I69=AD33|I70=AD36|" & _
+    "I81=AD43|I82=AD46|I83=AD49|" & _
+    "I88=AD53|I89=AD56|I90=AD59"
 
 ' 舗装版破砕（舗装工事）機械の行 → 「As/Co の別:厚さの基準行[:追加で
 ' 拾う厚さ]」の対応。「行=As/Co:基準行」を並べる。基準行は総括表のH列で、
@@ -117,7 +145,7 @@ Private Const INPUT_COLOR As Long = 65535
 '==================================================================
 '==================================================================
 Public Sub 総括表舗装工事の数量を転記する()
-    Dim ws As Worksheet, srcWs As Worksheet
+    Dim ws As Worksheet, srcWs As Worksheet, dokiWs As Worksheet
     Dim p As Variant, kv As Variant
     Dim addr As String, cellRef As String, f As String, msg As String
     Dim nWrite As Long, nSkip As Long, why As String
@@ -140,6 +168,13 @@ Public Sub 総括表舗装工事の数量を転記する()
         Exit Sub
     End If
 
+    Set dokiWs = FindSheet(DOKI_SRC)
+    If dokiWs Is Nothing Then
+        MsgBox "転記元シートが見つかりません: " & DOKI_SRC, vbExclamation, _
+               "総括表（舗装工事）の数量を転記"
+        Exit Sub
+    End If
+
     On Error GoTo Failed
 
     ' --- 何をするかを見せて確認 --------------------------------------
@@ -158,6 +193,13 @@ Public Sub 総括表舗装工事の数量を転記する()
         kv = Split(CStr(p), "=")
         If UBound(kv) = 1 Then
             msg = msg & "  I" & CStr(kv(0)) & vbCrLf
+        End If
+    Next p
+    msg = msg & vbCrLf & "路盤掘削・発生土処理（機械）の行にも、次の直接参照を入れます。" & vbCrLf
+    For Each p In Split(DOKI_MAP, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            msg = msg & "  " & CStr(kv(0)) & " = " & DOKI_SRC & "!" & CStr(kv(1)) & vbCrLf
         End If
     Next p
     msg = msg & "----------------------------------------" & vbCrLf & vbCrLf & _
@@ -203,6 +245,23 @@ Public Sub 総括表舗装工事の数量を転記する()
                     cel.Formula = f
                     nWrite = nWrite + 1
                 End If
+            Else
+                nSkip = nSkip + 1
+                why = why & "　" & addr & " は黄色でないので見送りました" & vbCrLf
+            End If
+        End If
+    Next p
+
+    For Each p In Split(DOKI_MAP, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            addr = CStr(kv(0))
+            cellRef = CStr(kv(1))
+            Set cel = ws.Range(addr)
+            If IsInputCell(cel) Then
+                f = "=" & SheetRef(DOKI_SRC) & cellRef
+                cel.Formula = f
+                nWrite = nWrite + 1
             Else
                 nSkip = nSkip + 1
                 why = why & "　" & addr & " は黄色でないので見送りました" & vbCrLf
