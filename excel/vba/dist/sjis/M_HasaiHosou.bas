@@ -62,22 +62,22 @@ Private Const PAVE_SRC As String = "舗装（集計）"
 ' 総括表（舗装工事）と 舗装（集計）の並びを見比べて書き直すこと。
 Private Const CELL_MAP As String = "I7=M4|I8=M5|I9=P4|I10=P5"
 
-' 舗装版破砕（舗装工事）機械の行 → 「As/Co の別:厚さの基準行」の対応。
-' 「行=As/Co:基準行」を並べる。基準行は総括表のH列で、その行の厚さの
-' 値をSUMIFの条件にする。ほとんどの行は自分自身の行を基準にするが、
-' I24（=24行目）だけはこの工事で確かめた式のとおり11行目（人力・
-' As・4㎝以下の厚さの定義行）を基準にする（11行目も24行目もH列は
-' 同じ「4」なので結果は変わらない）。
+' 舗装版破砕（舗装工事）機械の行 → 「As/Co の別:厚さの基準行[:追加で
+' 拾う厚さ]」の対応。「行=As/Co:基準行」を並べる。基準行は総括表のH列で、
+' その行の厚さの値をSUMIFの条件にする。ほとんどの行は自分自身の行を
+' 基準にするが、I24（=24行目）だけはこの工事で確かめた式のとおり
+' 11行目（人力・As・4㎝以下の厚さの定義行）を基準にする（11行目も
+' 24行目もH列は同じ「4」なので結果は変わらない）。
 '
-' 34行目（機械・Co・15㎝以下）は元から
-' ='舗装（集計）'!AG25+'舗装（集計）'!AG26 という別の式（総計
-' No.1+No.2 の枠を直接足す式）が入っていて、この式が指す値
-' （119.61）と、下のSUMIFの組み合わせで出す値（118.71）が
-' 0.9 違う。どちらが正しいか確認が取れていないため、34行目は
-' HASAI_KIKAI_MAP に入れず、元の式のまま触らない。
+' 34行目（機械・Co・15㎝以下）はCo破砕だけ15㎝と14㎝の区分があり、
+' 14㎝の分は15㎝の欄にまとめている（As側は14㎝が別行＝27行目に
+' そのまま残るので、このまとめは無い）。そのため基準行の厚さ（15）
+' だけでなく、No.2側（AF/AG列）から厚さ14のぶんも追加で拾う必要が
+' あり、「34=Co:34:14」のように3つ目の欄に追加の厚さを書く
+' （複数あるときはカンマで区切る）。
 Private Const HASAI_KIKAI_MAP As String = _
     "24=As:11|25=As:25|26=As:26|27=As:27|28=As:28|32=As:32|" & _
-    "33=Co:33|35=Co:35"
+    "33=Co:33|34=Co:34:14|35=Co:35"
 
 ' As側・Co側それぞれの固定範囲（舗装（集計）内、No.1とNo.2）。
 ' 「種別・舗装厚｜合計」の並び（総括表（土工事）の「その1」と同じ形）。
@@ -250,11 +250,12 @@ End Function
 Private Function HasaiKikaiRef(ByVal ws As Worksheet, ByVal r As Long) As String
     Dim spec As String, parts As Variant, kind As String, hRow As Long
     Dim thk1 As String, sum1 As String, thk2 As String, sum2 As String, hRef As String
+    Dim f As String, e As Variant
 
     spec = MapLookup(HASAI_KIKAI_MAP, CStr(r))
     If Len(spec) = 0 Then Exit Function
     parts = Split(spec, ":")
-    If UBound(parts) <> 1 Then Exit Function
+    If UBound(parts) < 1 Then Exit Function
     kind = CStr(parts(0))
     hRow = CLng(parts(1))
 
@@ -269,9 +270,20 @@ Private Function HasaiKikaiRef(ByVal ws As Worksheet, ByVal r As Long) As String
     End If
 
     hRef = SheetRef(ws.Name) & "$H" & hRow
-    HasaiKikaiRef = "=SUMIF(" & SheetRef(PAVE_SRC) & thk1 & "," & hRef & "," & _
+    f = "=SUMIF(" & SheetRef(PAVE_SRC) & thk1 & "," & hRef & "," & _
         SheetRef(PAVE_SRC) & sum1 & ")+SUMIF(" & SheetRef(PAVE_SRC) & thk2 & "," & _
         hRef & "," & SheetRef(PAVE_SRC) & sum2 & ")"
+
+    ' 3つ目の欄（追加の厚さ）があれば、No.2側からその厚さのぶんも
+    ' 追加で拾う（例：Co破砕の14cmを15cmの欄にまとめる場合）
+    If UBound(parts) >= 2 Then
+        For Each e In Split(CStr(parts(2)), ",")
+            f = f & "+SUMIF(" & SheetRef(PAVE_SRC) & thk2 & "," & CStr(e) & "," & _
+                SheetRef(PAVE_SRC) & sum2 & ")"
+        Next e
+    End If
+
+    HasaiKikaiRef = f
 End Function
 
 ' 数式に書くシート名。囲む必要のある名前だけ ' で囲む

@@ -20,13 +20,15 @@ TARGET_SHEET = "総括表（舗装工事）"
 PAVE_SRC = "舗装（集計）"
 CELL_MAP = "I7=M4|I8=M5|I9=P4|I10=P5"
 
-# 舗装版破砕（舗装工事）機械の行 → 「As/Co の別:厚さの基準行」の対応。
-# I24 だけは11行目（人力・As・4cm以下の厚さの定義行）を基準にする
-# （11行目も24行目もH列は同じ「4」なので結果は変わらない）。
-# 34行目（機械・Co・15cm以下）は元の式（AG25+AG26）と値が0.9違うため
-# 未確認として外している。
+# 舗装版破砕（舗装工事）機械の行 → 「As/Co の別:厚さの基準行[:追加で
+# 拾う厚さ]」の対応。I24 だけは11行目（人力・As・4cm以下の厚さの定義行）
+# を基準にする（11行目も24行目もH列は同じ「4」なので結果は変わらない）。
+# 34行目（機械・Co・15cm以下）はCo破砕だけ15cmと14cmの区分があり、
+# 14cmの分は15cmの欄にまとめている（As側は14cmが別行＝27行目に
+# そのまま残るので、このまとめは無い）ため、No.2側（AF/AG列）から
+# 厚さ14のぶんも追加で拾う。
 HASAI_KIKAI_MAP = ("24=As:11|25=As:25|26=As:26|27=As:27|28=As:28|32=As:32|"
-                    "33=Co:33|35=Co:35")
+                    "33=Co:33|34=Co:34:14|35=Co:35")
 HASAI_AS_NO1_THK = "$L$12:$L$19"
 HASAI_AS_NO1_SUM = "$M$12:$M$19"
 HASAI_AS_NO2_THK = "$AC$10:$AC$16"
@@ -77,8 +79,8 @@ def hasai_kikai_ref(sheet_name, r):
             break
     if spec is None:
         return ""
-    kind, h_row = spec.split(":")
-    h_row = int(h_row)
+    parts = spec.split(":")
+    kind, h_row = parts[0], int(parts[1])
     if kind == "As":
         thk1, sum1, thk2, sum2 = (HASAI_AS_NO1_THK, HASAI_AS_NO1_SUM,
                                    HASAI_AS_NO2_THK, HASAI_AS_NO2_SUM)
@@ -88,9 +90,17 @@ def hasai_kikai_ref(sheet_name, r):
     else:
         return ""
     h_ref = sheet_ref(sheet_name) + "$H" + str(h_row)
-    return ("=SUMIF(" + sheet_ref(PAVE_SRC) + thk1 + "," + h_ref + "," +
-            sheet_ref(PAVE_SRC) + sum1 + ")+SUMIF(" + sheet_ref(PAVE_SRC) + thk2 + "," +
-            h_ref + "," + sheet_ref(PAVE_SRC) + sum2 + ")")
+    f = ("=SUMIF(" + sheet_ref(PAVE_SRC) + thk1 + "," + h_ref + "," +
+         sheet_ref(PAVE_SRC) + sum1 + ")+SUMIF(" + sheet_ref(PAVE_SRC) + thk2 + "," +
+         h_ref + "," + sheet_ref(PAVE_SRC) + sum2 + ")")
+
+    # 3つ目の欄（追加の厚さ）があれば、No.2側からその厚さのぶんも
+    # 追加で拾う（例：Co破砕の14cmを15cmの欄にまとめる場合）
+    if len(parts) >= 3:
+        for e in parts[2].split(","):
+            f += ("+SUMIF(" + sheet_ref(PAVE_SRC) + thk2 + "," + e + "," +
+                  sheet_ref(PAVE_SRC) + sum2 + ")")
+    return f
 
 
 def main():
@@ -132,7 +142,12 @@ def main():
             ("I24", "=SUMIF('舗装（集計）'!$L$12:$L$19,'総括表（舗装工事）'!$H11,"
                      "'舗装（集計）'!$M$12:$M$19)"
                      "+SUMIF('舗装（集計）'!$AC$10:$AC$16,'総括表（舗装工事）'!$H11,"
-                     "'舗装（集計）'!$AD$10:$AD$16)")):
+                     "'舗装（集計）'!$AD$10:$AD$16)"),
+            ("I34", "=SUMIF('舗装（集計）'!$O$12:$O$19,'総括表（舗装工事）'!$H34,"
+                     "'舗装（集計）'!$P$12:$P$19)"
+                     "+SUMIF('舗装（集計）'!$AF$10:$AF$16,'総括表（舗装工事）'!$H34,"
+                     "'舗装（集計）'!$AG$10:$AG$16)"
+                     "+SUMIF('舗装（集計）'!$AF$10:$AF$16,14,'舗装（集計）'!$AG$10:$AG$16)")):
         g = written.get(addr, "")
         mark = "一致" if g == expect else f"違う（{g}）"
         print(f"{addr} = {expect}  … {mark}")
@@ -147,8 +162,6 @@ def main():
     if skipped:
         print(f"\n見送り {len(skipped)} 個（黄色でないセル）: {', '.join(skipped)}")
 
-    print("\n34行目（機械・Co・15cm以下）は元の式のまま触っていない"
-          "（元の式と新しいSUMIFの値が0.9違うため未確認）")
     return 0 if ok else 1
 
 
