@@ -7,9 +7,10 @@
     python3 excel/docs/build_vba.py
 
 出力:
-    excel/vba/dist/M_Hasai.bas      06 土工事・舗装復旧 用
-    excel/vba/dist/M_Tenki.bas      01 総括表 用
-    excel/vba/dist/sjis/*.bas       同じものの Shift-JIS 版（インポート用）
+    excel/vba/dist/M_Hasai.bas       06 土工事・舗装復旧 用
+    excel/vba/dist/M_HasaiHosou.bas  06 総括表（舗装工事） 用
+    excel/vba/dist/M_Tenki.bas       01 総括表 用
+    excel/vba/dist/sjis/*.bas        同じものの Shift-JIS 版（インポート用）
 """
 import os
 import re
@@ -30,6 +31,18 @@ BUNDLES = [
             "'",
             "' このファイル1つだけを標準モジュールに貼り付ければ動く。",
             "' マクロは「総括表の数量を転記する」1本。",
+        ],
+    },
+    {
+        "name": "M_HasaiHosou",
+        # 単独で動く。将来的には M_Hasai と合わせる予定
+        "parts": ["M_HasaiHosou.bas"],
+        "header": [
+            "' 06 総括表（舗装工事） 用",
+            "'",
+            "' このファイル1つだけを標準モジュールに貼り付ければ動く。",
+            "' マクロは「総括表（舗装工事）の数量を転記する」1本。",
+            "' 将来的には M_Hasai（総括表（土工事）用）と合わせる予定。",
         ],
     },
     {
