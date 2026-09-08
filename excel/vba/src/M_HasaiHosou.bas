@@ -20,6 +20,16 @@ Attribute VB_Name = "M_HasaiHosou"
 '   I9  = Co・t≦15    → 舗装（集計）!P4
 '   I10 = Co・15<t≦30 → 舗装（集計）!P5
 '
+' 「舗装版破砕（舗装工事）機械」の行（HASAI_KIKAI_MAP を参照）は、
+' 総括表のH列（厚さ）の値を 舗装（集計）の候補一覧から探して合計欄を
+' 拾う SUMIF。舗装版破砕工（No.1）と舗装版破砕工No.2の両方の枠を
+' 足す（総括表（土工事）の O31 などと同じ考え方）。
+'
+'   I24 = SUMIF('舗装（集計）'!$L$12:$L$19,'総括表（舗装工事）'!$H11,
+'               '舗装（集計）'!$M$12:$M$19)
+'         +SUMIF('舗装（集計）'!$AC$10:$AC$16,'総括表（舗装工事）'!$H11,
+'                '舗装（集計）'!$AD$10:$AD$16)
+'
 ' 書き込む先は、総括表で黄色く塗ってある入力セルだけ。
 '==================================================================
 Option Explicit
@@ -39,6 +49,34 @@ Private Const PAVE_SRC As String = "舗装（集計）"
 ' 念のためこの工事で確かめた対応をそのまま書く。別の工事に持っていくときは
 ' 総括表（舗装工事）と 舗装（集計）の並びを見比べて書き直すこと。
 Private Const CELL_MAP As String = "I7=M4|I8=M5|I9=P4|I10=P5"
+
+' 舗装版破砕（舗装工事）機械の行 → 「As/Co の別:厚さの基準行」の対応。
+' 「行=As/Co:基準行」を並べる。基準行は総括表のH列で、その行の厚さの
+' 値をSUMIFの条件にする。ほとんどの行は自分自身の行を基準にするが、
+' I24（=24行目）だけはこの工事で確かめた式のとおり11行目（人力・
+' As・4㎝以下の厚さの定義行）を基準にする（11行目も24行目もH列は
+' 同じ「4」なので結果は変わらない）。
+'
+' 34行目（機械・Co・15㎝以下）は元から
+' ='舗装（集計）'!AG25+'舗装（集計）'!AG26 という別の式（総計
+' No.1+No.2 の枠を直接足す式）が入っていて、この式が指す値
+' （119.61）と、下のSUMIFの組み合わせで出す値（118.71）が
+' 0.9 違う。どちらが正しいか確認が取れていないため、34行目は
+' HASAI_KIKAI_MAP に入れず、元の式のまま触らない。
+Private Const HASAI_KIKAI_MAP As String = _
+    "24=As:11|25=As:25|26=As:26|27=As:27|28=As:28|32=As:32|" & _
+    "33=Co:33|35=Co:35"
+
+' As側・Co側それぞれの固定範囲（舗装（集計）内、No.1とNo.2）。
+' 「種別・舗装厚｜合計」の並び（総括表（土工事）の「その1」と同じ形）。
+Private Const HASAI_AS_NO1_THK As String = "$L$12:$L$19"
+Private Const HASAI_AS_NO1_SUM As String = "$M$12:$M$19"
+Private Const HASAI_AS_NO2_THK As String = "$AC$10:$AC$16"
+Private Const HASAI_AS_NO2_SUM As String = "$AD$10:$AD$16"
+Private Const HASAI_CO_NO1_THK As String = "$O$12:$O$19"
+Private Const HASAI_CO_NO1_SUM As String = "$P$12:$P$19"
+Private Const HASAI_CO_NO2_THK As String = "$AF$10:$AF$16"
+Private Const HASAI_CO_NO2_SUM As String = "$AG$10:$AG$16"
 
 ' 入力セルの色（黄色）。総括表の凡例と同じ色
 Private Const INPUT_COLOR As Long = 65535
@@ -81,6 +119,13 @@ Public Sub 総括表舗装工事の数量を転記する()
             msg = msg & "  " & CStr(kv(0)) & " = " & PAVE_SRC & "!" & CStr(kv(1)) & vbCrLf
         End If
     Next p
+    msg = msg & vbCrLf & "舗装版破砕（舗装工事）機械の行には、次のSUMIFを入れます。" & vbCrLf
+    For Each p In Split(HASAI_KIKAI_MAP, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            msg = msg & "  I" & CStr(kv(0)) & vbCrLf
+        End If
+    Next p
     msg = msg & "----------------------------------------" & vbCrLf & vbCrLf & _
           "書き込む前にバックアップを取ります。続けますか？"
 
@@ -104,6 +149,26 @@ Public Sub 総括表舗装工事の数量を転記する()
                 f = "=" & SheetRef(PAVE_SRC) & cellRef
                 cel.Formula = f
                 nWrite = nWrite + 1
+            Else
+                nSkip = nSkip + 1
+                why = why & "　" & addr & " は黄色でないので見送りました" & vbCrLf
+            End If
+        End If
+    Next p
+
+    Dim r As Long
+    For Each p In Split(HASAI_KIKAI_MAP, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            r = CLng(kv(0))
+            addr = "I" & r
+            Set cel = ws.Range(addr)
+            If IsInputCell(cel) Then
+                f = HasaiKikaiRef(ws, r)
+                If Len(f) > 0 Then
+                    cel.Formula = f
+                    nWrite = nWrite + 1
+                End If
             Else
                 nSkip = nSkip + 1
                 why = why & "　" & addr & " は黄色でないので見送りました" & vbCrLf
@@ -148,6 +213,50 @@ End Function
 
 Private Function IsInputCell(ByVal c As Range) As Boolean
     IsInputCell = (c.Interior.Color = INPUT_COLOR)
+End Function
+
+' 「キー=値|キー=値|…」から key にちょうど一致する値を取り出す。
+' 無ければ空文字列
+Private Function MapLookup(ByVal mapStr As String, ByVal key As String) As String
+    Dim p As Variant, kv As Variant
+    For Each p In Split(mapStr, "|")
+        kv = Split(CStr(p), "=")
+        If UBound(kv) = 1 Then
+            If CStr(kv(0)) = key Then
+                MapLookup = CStr(kv(1))
+                Exit Function
+            End If
+        End If
+    Next p
+End Function
+
+' 舗装版破砕（舗装工事）機械の1セル分。HASAI_KIKAI_MAP から
+' As/Co の別と厚さの基準行を引いて、SUMIF を2つ足した式を組み立てる
+Private Function HasaiKikaiRef(ByVal ws As Worksheet, ByVal r As Long) As String
+    Dim spec As String, parts As Variant, kind As String, hRow As Long
+    Dim thk1 As String, sum1 As String, thk2 As String, sum2 As String, hRef As String
+
+    spec = MapLookup(HASAI_KIKAI_MAP, CStr(r))
+    If Len(spec) = 0 Then Exit Function
+    parts = Split(spec, ":")
+    If UBound(parts) <> 1 Then Exit Function
+    kind = CStr(parts(0))
+    hRow = CLng(parts(1))
+
+    If kind = "As" Then
+        thk1 = HASAI_AS_NO1_THK: sum1 = HASAI_AS_NO1_SUM
+        thk2 = HASAI_AS_NO2_THK: sum2 = HASAI_AS_NO2_SUM
+    ElseIf kind = "Co" Then
+        thk1 = HASAI_CO_NO1_THK: sum1 = HASAI_CO_NO1_SUM
+        thk2 = HASAI_CO_NO2_THK: sum2 = HASAI_CO_NO2_SUM
+    Else
+        Exit Function
+    End If
+
+    hRef = SheetRef(ws.Name) & "$H" & hRow
+    HasaiKikaiRef = "=SUMIF(" & SheetRef(PAVE_SRC) & thk1 & "," & hRef & "," & _
+        SheetRef(PAVE_SRC) & sum1 & ")+SUMIF(" & SheetRef(PAVE_SRC) & thk2 & "," & _
+        hRef & "," & SheetRef(PAVE_SRC) & sum2 & ")"
 End Function
 
 ' 数式に書くシート名。囲む必要のある名前だけ ' で囲む

@@ -19,6 +19,23 @@ BOOK = os.environ.get("BOOK", "06_dokou_hosou.xlsx")
 TARGET_SHEET = "総括表（舗装工事）"
 PAVE_SRC = "舗装（集計）"
 CELL_MAP = "I7=M4|I8=M5|I9=P4|I10=P5"
+
+# 舗装版破砕（舗装工事）機械の行 → 「As/Co の別:厚さの基準行」の対応。
+# I24 だけは11行目（人力・As・4cm以下の厚さの定義行）を基準にする
+# （11行目も24行目もH列は同じ「4」なので結果は変わらない）。
+# 34行目（機械・Co・15cm以下）は元の式（AG25+AG26）と値が0.9違うため
+# 未確認として外している。
+HASAI_KIKAI_MAP = ("24=As:11|25=As:25|26=As:26|27=As:27|28=As:28|32=As:32|"
+                    "33=Co:33|35=Co:35")
+HASAI_AS_NO1_THK = "$L$12:$L$19"
+HASAI_AS_NO1_SUM = "$M$12:$M$19"
+HASAI_AS_NO2_THK = "$AC$10:$AC$16"
+HASAI_AS_NO2_SUM = "$AD$10:$AD$16"
+HASAI_CO_NO1_THK = "$O$12:$O$19"
+HASAI_CO_NO1_SUM = "$P$12:$P$19"
+HASAI_CO_NO2_THK = "$AF$10:$AF$16"
+HASAI_CO_NO2_SUM = "$AG$10:$AG$16"
+
 INPUT_COLOR = "FFFF00"
 
 
@@ -50,6 +67,32 @@ def is_input_cell(ws, addr):
     return False
 
 
+def hasai_kikai_ref(sheet_name, r):
+    """舗装版破砕（舗装工事）機械の1セル分（VBA の HasaiKikaiRef）"""
+    spec = None
+    for p in HASAI_KIKAI_MAP.split("|"):
+        k, v = p.split("=")
+        if int(k) == r:
+            spec = v
+            break
+    if spec is None:
+        return ""
+    kind, h_row = spec.split(":")
+    h_row = int(h_row)
+    if kind == "As":
+        thk1, sum1, thk2, sum2 = (HASAI_AS_NO1_THK, HASAI_AS_NO1_SUM,
+                                   HASAI_AS_NO2_THK, HASAI_AS_NO2_SUM)
+    elif kind == "Co":
+        thk1, sum1, thk2, sum2 = (HASAI_CO_NO1_THK, HASAI_CO_NO1_SUM,
+                                   HASAI_CO_NO2_THK, HASAI_CO_NO2_SUM)
+    else:
+        return ""
+    h_ref = sheet_ref(sheet_name) + "$H" + str(h_row)
+    return ("=SUMIF(" + sheet_ref(PAVE_SRC) + thk1 + "," + h_ref + "," +
+            sheet_ref(PAVE_SRC) + sum1 + ")+SUMIF(" + sheet_ref(PAVE_SRC) + thk2 + "," +
+            h_ref + "," + sheet_ref(PAVE_SRC) + sum2 + ")")
+
+
 def main():
     path = os.path.join(FOLDER, BOOK)
     wb = openpyxl.load_workbook(path, data_only=False)
@@ -70,20 +113,42 @@ def main():
         else:
             skipped.append(addr)
 
+    for p in HASAI_KIKAI_MAP.split("|"):
+        r = int(p.split("=")[0])
+        addr = "I" + str(r)
+        if is_input_cell(ws, addr):
+            f = hasai_kikai_ref(TARGET_SHEET, r)
+            if f:
+                written[addr] = f
+        else:
+            skipped.append(addr)
+
     ok = True
     for addr, expect in (
             ("I7", "='舗装（集計）'!M4"),
             ("I8", "='舗装（集計）'!M5"),
             ("I9", "='舗装（集計）'!P4"),
-            ("I10", "='舗装（集計）'!P5")):
+            ("I10", "='舗装（集計）'!P5"),
+            ("I24", "=SUMIF('舗装（集計）'!$L$12:$L$19,'総括表（舗装工事）'!$H11,"
+                     "'舗装（集計）'!$M$12:$M$19)"
+                     "+SUMIF('舗装（集計）'!$AC$10:$AC$16,'総括表（舗装工事）'!$H11,"
+                     "'舗装（集計）'!$AD$10:$AD$16)")):
         g = written.get(addr, "")
         mark = "一致" if g == expect else f"違う（{g}）"
         print(f"{addr} = {expect}  … {mark}")
         ok = ok and g == expect
 
     print("\n指示された式がすべて一致したか:", "はい" if ok else "いいえ")
+
+    print(f"\n=== 書き込むセル {len(written)} 個 ===")
+    for addr in sorted(written, key=lambda a: int(a[1:])):
+        print(f"  {addr}: {written[addr]}")
+
     if skipped:
         print(f"\n見送り {len(skipped)} 個（黄色でないセル）: {', '.join(skipped)}")
+
+    print("\n34行目（機械・Co・15cm以下）は元の式のまま触っていない"
+          "（元の式と新しいSUMIFの値が0.9違うため未確認）")
     return 0 if ok else 1
 
 
