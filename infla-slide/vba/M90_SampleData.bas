@@ -2,15 +2,17 @@
 ' M90_SampleData  ―  動作確認用のサンプルCSVを作る（任意モジュール）
 '--------------------------------------------------------------
 ' 標準モジュールとして貼り付け、モジュール名を "M90_SampleData" に。
-' 実物のCSVが手元に無くても、これで一通りの動作確認ができます。
-' 本番運用時は削除して構いません。
+' エスティマ「スライド用csv出力」と同じ形（12列・見出し行なし）の
+' サンプルCSVを、旧単価用と新単価用の2本作ります。
+' 実物のCSVが手元に無くても一通りの動作確認ができます。
 '==============================================================
 Option Explicit
 
+Private mSb As String
+
 
 Public Sub テスト用CSV作成()
-    Dim baseDir As String
-    Dim pOld As String, pNew As String
+    Dim baseDir As String, pOld As String, pNew As String
 
     baseDir = ThisWorkbook.Path
     If baseDir = "" Then
@@ -18,35 +20,31 @@ Public Sub テスト用CSV作成()
         Exit Sub
     End If
 
-    pOld = baseDir & Application.PathSeparator & "sample_変動前.csv"
-    pNew = baseDir & Application.PathSeparator & "sample_変動後.csv"
+    pOld = baseDir & Application.PathSeparator & "sample_旧単価.csv"
+    pNew = baseDir & Application.PathSeparator & "sample_新単価.csv"
 
     WriteTextFile pOld, SampleCsv(False), "Shift_JIS"
     WriteTextFile pNew, SampleCsv(True), "Shift_JIS"
 
-    ' 設定シートがあればパスと工事情報を流し込む
     If SheetExists(SH_CONFIG) Then
-        SetConfigValue "変動前CSVパス", pOld
-        SetConfigValue "変動後CSVパス", pNew
+        SetConfigValue "旧単価CSVパス", pOld
+        SetConfigValue "新単価CSVパス", pNew
         SetConfigValue "工事名", "○○地内　道路改良工事（テスト）"
-        SetConfigValue "工事場所", "○○県○○市○○地内"
+        SetConfigValue "工事場所", "神戸市○○区○○町地内"
         SetConfigValue "工期（自）", "令和7年4月1日"
         SetConfigValue "工期（至）", "令和8年3月20日"
-        SetConfigValue "請負代金額", 58500000
+        SetConfigValue "請負代金額", 120000000
         SetConfigValue "基準日", "令和7年10月1日"
-        SetConfigValue "発注者", "○○県○○土木事務所"
+        SetConfigValue "発注者", "神戸市"
         SetConfigValue "受注者", "株式会社○○建設"
     End If
 
     MsgBox "サンプルCSVを作成しました。" & vbCrLf & vbCrLf & _
            pOld & vbCrLf & pNew & vbCrLf & vbCrLf & _
-           "続けて［インフレスライド設計書作成］を実行してください。", vbInformation
+           "続けて［スライド計算表作成］を実行してください。", vbInformation
 End Sub
 
 
-'--------------------------------------------------------------
-' 設定シートの値を書き換える（A列の項目名で検索）
-'--------------------------------------------------------------
 Private Sub SetConfigValue(ByVal label As String, ByVal v As Variant)
     Dim ws As Worksheet
     Dim r As Long, lastR As Long
@@ -64,42 +62,93 @@ End Sub
 
 
 '--------------------------------------------------------------
-' サンプル明細（基準日以降の残工事を想定）
-'   isNew = False … 変動前（旧労務単価）
-'   isNew = True  … 変動後（新労務単価）
+' サンプル（エスティマ「スライド用csv出力」形式・12列・見出しなし）
+'   isNew = False … 当初の単価適用日
+'   isNew = True  … 基準日の単価適用日（労務比率の高い工種ほど上昇）
 '--------------------------------------------------------------
 Private Function SampleCsv(ByVal isNew As Boolean) As String
-    Dim sb As String
+    mSb = ""
 
-    ' 新単価では労務比率の高い工種ほど単価が上がる想定
-    sb = "工種,種別,細別,規格,単位,数量,単価,金額,摘要" & vbCrLf
+    Head "G0100", "○○地内　道路改良工事"
+    Head "X1000", "本工事費"
 
-    sb = sb & CsvRow("土工", "掘削工", "機械掘削", "土砂　オープンカット", "m3", 1250, IIf(isNew, 336, 320))
-    sb = sb & CsvRow("土工", "埋戻工", "埋戻し", "流用土　人力併用", "m3", 880, IIf(isNew, 452, 410))
-    sb = sb & CsvRow("土工", "残土処理工", "残土運搬", "DT10t　L=5km", "m3", 620, IIf(isNew, 1180, 1150))
-    sb = sb & CsvRow("擁壁工", "場所打擁壁工", "コンクリート", "18-8-25(高炉)", "m3", 145, IIf(isNew, 22400, 21000))
-    sb = sb & CsvRow("擁壁工", "場所打擁壁工", "型枠", "一般型枠", "m2", 980, IIf(isNew, 3620, 3280))
-    sb = sb & CsvRow("擁壁工", "場所打擁壁工", "鉄筋", "SD345　D16", "t", 12.4, IIf(isNew, 138000, 128000))
-    sb = sb & CsvRow("舗装工", "路盤工", "下層路盤", "クラッシャラン　t=200", "m2", 3100, IIf(isNew, 1420, 1350))
-    sb = sb & CsvRow("舗装工", "路盤工", "上層路盤", "粒度調整砕石　t=150", "m2", 3100, IIf(isNew, 1680, 1590))
-    sb = sb & CsvRow("舗装工", "表層工", "表層", "密粒度AS　t=50", "m2", 3100, IIf(isNew, 2240, 2080))
-    sb = sb & CsvRow("排水工", "側溝工", "L型側溝", "300×300", "m", 460, IIf(isNew, 9800, 9100))
-    sb = sb & CsvRow("排水工", "集水桝工", "集水桝", "600×600　H=1.0m", "箇所", 18, IIf(isNew, 86000, 79000))
-    sb = sb & CsvRow("付属物工", "防護柵工", "ガードレール", "Gr-A-2E", "m", 320, IIf(isNew, 7400, 7050))
-    sb = sb & CsvRow("付属物工", "区画線工", "区画線", "溶融式　実線15cm", "m", 2800, IIf(isNew, 410, 395))
-    sb = sb & CsvRow("共通仮設費", "共通仮設費", "共通仮設費", "率計上", "式", 1, IIf(isNew, 4180000, 3900000))
-    sb = sb & CsvRow("現場管理費", "現場管理費", "現場管理費", "率計上", "式", 1, IIf(isNew, 7350000, 6880000))
-    sb = sb & CsvRow("一般管理費等", "一般管理費等", "一般管理費等", "率計上", "式", 1, IIf(isNew, 5120000, 4820000))
+    Head "Y10001", "道路改良"
+    Head "Y20001", "土工"
+    Head "Y30001", "掘削工"
+    Head "Y40001", "機械掘削"
+    Det "床掘り", "m3", "土砂", "オープンカット", "", 1250, IIf(isNew, 336, 320)
+    Head "Y40002", "埋戻工"
+    Det "埋戻し", "m3", "流用土", "人力併用", "", 880, IIf(isNew, 452, 410)
+    Det "土材料", "m3", "再生クラッシャラン0~40", "", "裏込め部", 40, IIf(isNew, 1800, 1800)
+    Head "Y40003", "残土処理工"
+    Det "土砂等運搬", "m3", "DT10t", "L=5km", "片道9.5km", 620, IIf(isNew, 1613, 1583)
+    Det "残土等処分", "m3", "布施畑環境センター", "", "", 620, IIf(isNew, 3272, 3272)
 
-    SampleCsv = sb
+    Head "Y30002", "擁壁工"
+    Head "Y40011", "場所打擁壁工"
+    Det "コンクリート", "m3", "24-12-25(20)(高炉)", "", "躯体", 145, IIf(isNew, 35690, 35400)
+    Det "型枠", "m2", "一般型枠", "", "", 980, IIf(isNew, 8308, 8101)
+    Det "鉄筋工", "t", "SD345", "D16～D25", "", 12.4, IIf(isNew, 135500, 117500)
+
+    Head "Y20002", "舗装工"
+    Head "Y30011", "路盤工"
+    Head "Y40021", "下層路盤"
+    Det "下層路盤", "m2", "クラッシャラン", "t=200", "", 3100, IIf(isNew, 1420, 1350)
+    Head "Y40022", "上層路盤"
+    Det "上層路盤", "m2", "粒度調整砕石", "t=150", "", 3100, IIf(isNew, 1680, 1590)
+    Head "Y30012", "表層工"
+    Head "Y40031", "表層"
+    Det "表層", "m2", "密粒度AS", "t=50", "", 3100, IIf(isNew, 2240, 2080)
+
+    Head "Y10002", "交通管理"
+    Head "Y20011", "交通管理工"
+    Head "Y30021", "交通誘導警備員"
+    Det "交通誘導警備員B", "人日", "", "", "", 352, IIf(isNew, 12080, 11870)
+
+    ' 諸経費（共通仮設費の積上げ分）
+    Head "Z0001", "運搬費"
+    Head "YZ0001", "重機分解組立輸送"
+    Det "重機分解組立輸送", "回", "分解組立+輸送(往復)", "", "", 1, IIf(isNew, 831400, 828600)
+    Head "Z0010", "準備費"
+    Head "YZ0011", "木根等処分費"
+    Det "高木伐採・根株撤去", "本", "幹周90cm～110cm", "", "集材含む", 2, IIf(isNew, 77750, 75485)
+    Det "生木処分費", "t", "枝葉", "", "", 5.09, IIf(isNew, 16000, 16000)
+    Head "Z0020", "技術管理費"
+    Head "YZ0021", "土質試験費"
+    Det "土の一軸圧縮試験", "試料", "", "", "2供試体/試料", 3, IIf(isNew, 10400, 10400)
+
+    SampleCsv = mSb
 End Function
 
 
-Private Function CsvRow(ByVal koshu As String, ByVal shubetsu As String, ByVal saibetsu As String, _
-                      ByVal kikaku As String, ByVal tani As String, _
-                      ByVal suryo As Double, ByVal tanka As Double) As String
-    CsvRow = koshu & "," & shubetsu & "," & saibetsu & "," & _
-           """" & kikaku & """" & "," & tani & "," & _
-           Format$(suryo, "0.00") & "," & Format$(tanka, "0") & "," & _
-           Format$(suryo * tanka, "0") & "," & vbCrLf
+' 階層行（コードあり・単価/数量なし）
+Private Sub Head(ByVal code As String, ByVal nm As String)
+    Row12 code, nm, "式", "", "", "", 0, 0
+End Sub
+
+
+' 明細行（コードなし）
+Private Sub Det(ByVal nm As String, ByVal tani As String, ByVal k1 As String, _
+                ByVal k2 As String, ByVal tekiyo As String, _
+                ByVal suryo As Double, ByVal tanka As Double)
+    Row12 "", nm, tani, k1, k2, tekiyo, suryo, tanka
+End Sub
+
+
+Private Sub Row12(ByVal code As String, ByVal nm As String, ByVal tani As String, _
+                  ByVal k1 As String, ByVal k2 As String, ByVal tekiyo As String, _
+                  ByVal suryo As Double, ByVal tanka As Double)
+    mSb = mSb & Q(code) & "," & Q(nm) & "," & Q(tani) & "," & Q(k1) & "," & Q(k2) & "," & Q(tekiyo) & _
+          "," & Format$(tanka, "0") & ",0," & _
+          Format$(suryo, "0.00") & ",0," & _
+          Format$(suryo * tanka, "0") & ",0" & vbCrLf
+End Sub
+
+
+Private Function Q(ByVal s As String) As String
+    If InStr(s, ",") > 0 Or InStr(s, """") > 0 Then
+        Q = """" & Replace(s, """", """""") & """"
+    Else
+        Q = s
+    End If
 End Function
