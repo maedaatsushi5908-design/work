@@ -26,20 +26,21 @@ Public Const SC_TANI     As Long = 14   ' N 単位
 Public Const SC_MK_SHOBU As Long = 15   ' O 処分費〇      ★手入力
 Public Const SC_MK_KANZA As Long = 16   ' P 管材費〇      ★手入力
 Public Const SC_MK_SHIN  As Long = 17   ' Q 新工種〇      ★手入力
-Public Const SC_A_ALL    As Long = 18   ' R スライド前・全体   =K*I
-Public Const SC_A_DONE   As Long = 19   ' S スライド前・出来形 =L*I
-Public Const SC_A_REST   As Long = 20   ' T スライド前・残工事 =M*I
-Public Const SC_B_ALL    As Long = 21   ' U スライド後・全体   =K*J
-Public Const SC_B_REST   As Long = 22   ' V スライド後・残工事 =M*J
-Public Const SC_TEKIYO   As Long = 23   ' W 摘要
-Public Const SC_SP_O     As Long = 24   ' X 処分費単価 スライド前 ★手入力
-Public Const SC_SP_N     As Long = 25   ' Y 処分費単価 スライド後 ★手入力
-Public Const SC_SA_ALL   As Long = 26   ' Z  処分費額 前・全体
-Public Const SC_SA_DONE  As Long = 27   ' AA 処分費額 前・出来形
-Public Const SC_SA_REST  As Long = 28   ' AB 処分費額 前・残工事
-Public Const SC_SB_ALL   As Long = 29   ' AC 処分費額 後・全体
-Public Const SC_SB_REST  As Long = 30   ' AD 処分費額 後・残工事
-Public Const SC_LAST     As Long = 30
+Public Const SC_MK_SCRAP As Long = 18   ' R スクラップ〇  ☆自動判定（修正可）
+Public Const SC_A_ALL    As Long = 19   ' S スライド前・全体   =K*I
+Public Const SC_A_DONE   As Long = 20   ' T スライド前・出来形 =L*I
+Public Const SC_A_REST   As Long = 21   ' U スライド前・残工事 =M*I
+Public Const SC_B_ALL    As Long = 22   ' V スライド後・全体   =K*J
+Public Const SC_B_REST   As Long = 23   ' W スライド後・残工事 =M*J
+Public Const SC_TEKIYO   As Long = 24   ' X 摘要
+Public Const SC_SP_O     As Long = 25   ' Y 処分費単価 スライド前 ★手入力
+Public Const SC_SP_N     As Long = 26   ' Z 処分費単価 スライド後 ★手入力
+Public Const SC_SA_ALL   As Long = 27   ' AA 処分費額 前・全体
+Public Const SC_SA_DONE  As Long = 28   ' AB 処分費額 前・出来形
+Public Const SC_SA_REST  As Long = 29   ' AC 処分費額 前・残工事
+Public Const SC_SB_ALL   As Long = 30   ' AD 処分費額 後・全体
+Public Const SC_SB_REST  As Long = 31   ' AE 処分費額 後・残工事
+Public Const SC_LAST     As Long = 31
 
 Public Const SH_SLIDE    As String = "スライド計算表"
 Public Const FIRST_ROW   As Long = 8
@@ -55,6 +56,9 @@ Public gZFirst      As Long     ' 共通仮設費 積上げ部の先頭行（0�
 Public gZLast       As Long     ' 　　　　　　　　　　最終行
 Public gZItems      As Object   ' Dictionary 名称 → "先頭行|最終行"
 Public gLastRow     As Long
+
+' スクラップ行の判定用（階層行で始まったブロックを明細行へ引き継ぐ）
+Private mScrapLevel As Long
 
 
 '==============================================================
@@ -179,6 +183,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
     r = FIRST_ROW - 1
     firstZ = 0
     gDirectFirst = FIRST_ROW
+    mScrapLevel = -1
 
     '--- 直接工事費部（X1000配下）---
     For i = 1 To n
@@ -211,6 +216,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
         ReDim zLvlArr(1 To n)
         zCnt = 0
         curItem = "": curStart = 0
+        mScrapLevel = -1
 
         For i = firstZ To n
             rec = recOld(i)
@@ -302,6 +308,13 @@ Private Function MatchNewPrices(ByVal recOld As Collection, ByVal recNew As Coll
 End Function
 
 
+' 名称が「スクラップ」を含むか（全角／半角カタカナの差は NormText が吸収する）
+Public Function IsScrapName(ByVal s As String) As Boolean
+    If s = "" Then Exit Function
+    IsScrapName = (InStr(1, NormText(s), NormText("スクラップ")) > 0)
+End Function
+
+
 Public Function LevelNum(ByVal lvl As String) As Long
     Select Case lvl
         Case "費目": LevelNum = 0
@@ -344,6 +357,7 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(5, SC_MK_SHOBU).Value = "処分費"
     ws.Cells(5, SC_MK_KANZA).Value = "管材費"
     ws.Cells(5, SC_MK_SHIN).Value = "新工種"
+    ws.Cells(5, SC_MK_SCRAP).Value = "スクラップ"
     ws.Cells(3, SC_A_ALL).Value = "スライド前（旧単価）"
     ws.Cells(5, SC_A_ALL).Value = "全体"
     ws.Cells(5, SC_A_DONE).Value = "出来形"
@@ -370,7 +384,7 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
         .Interior.Color = CLR_HEAD
         .Borders.LineStyle = xlContinuous
     End With
-    ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, SC_MK_SHIN)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, SC_MK_SCRAP)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(3, SC_SP_O), ws.Cells(6, SC_SP_N)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(6, 1), ws.Cells(6, SC_LAST)).Borders(xlEdgeBottom).LineStyle = xlDouble
 End Sub
@@ -417,8 +431,15 @@ Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Varian
         ws.Cells(r, SC_Q_ALL).Value = rec(R_SURYO)
         ws.Cells(r, SC_TANI).Value = rec(R_TANI)
         WriteDetailFormulas ws, r
+        ' スクラップは㉒として工事価格の後に足すので、①直接工事費からは外す
+        If mScrapLevel >= 0 Or IsScrapName(CStr(rec(R_NAME))) Then
+            ws.Cells(r, SC_MK_SCRAP).Value = "〇"
+        End If
     Else
         ws.Cells(r, SC_TANI).Value = "式"
+        ' 階層行がスクラップなら、その配下の明細行もスクラップ扱いにする
+        If mScrapLevel >= 0 And lvlNum <= mScrapLevel Then mScrapLevel = -1
+        If IsScrapName(CStr(rec(R_NAME))) Then mScrapLevel = lvlNum
     End If
 End Sub
 
@@ -547,9 +568,9 @@ Public Sub FinishSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Range(ws.Cells(FIRST_ROW, SC_SP_O), ws.Cells(lastRow, SC_SB_REST)).NumberFormatLocal = "#,##0"
 
     ws.Range(ws.Cells(FIRST_ROW, SC_Q_DONE), ws.Cells(lastRow, SC_Q_DONE)).Interior.Color = CLR_INPUT
-    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SHIN)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SCRAP)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(FIRST_ROW, SC_SP_O), ws.Cells(lastRow, SC_SP_N)).Interior.Color = CLR_INPUT
-    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SHIN)).HorizontalAlignment = xlCenter
+    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SCRAP)).HorizontalAlignment = xlCenter
 
     For r = FIRST_ROW To lastRow
         If ws.Cells(r, SC_HIMOKU).Value <> "" Then
@@ -566,7 +587,7 @@ Public Sub FinishSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
         End If
         ' 手入力欄の黄色は階層行の塗りより優先する
         If ws.Cells(r, SC_TANKA_O).Value = "" Then
-            ws.Range(ws.Cells(r, SC_MK_SHOBU), ws.Cells(r, SC_MK_SHIN)).Interior.ColorIndex = xlColorIndexNone
+            ws.Range(ws.Cells(r, SC_MK_SHOBU), ws.Cells(r, SC_MK_SCRAP)).Interior.ColorIndex = xlColorIndexNone
         End If
     Next r
 
@@ -578,7 +599,7 @@ Public Sub FinishSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Columns(SC_KIKAKU).ColumnWidth = 22
     ws.Range(ws.Columns(SC_TANKA_O), ws.Columns(SC_Q_REST)).ColumnWidth = 10
     ws.Columns(SC_TANI).ColumnWidth = 6
-    ws.Range(ws.Columns(SC_MK_SHOBU), ws.Columns(SC_MK_SHIN)).ColumnWidth = 6
+    ws.Range(ws.Columns(SC_MK_SHOBU), ws.Columns(SC_MK_SCRAP)).ColumnWidth = 6
     ws.Range(ws.Columns(SC_A_ALL), ws.Columns(SC_B_REST)).ColumnWidth = 12
     ws.Columns(SC_TEKIYO).ColumnWidth = 24
     ws.Range(ws.Columns(SC_SP_O), ws.Columns(SC_SB_REST)).ColumnWidth = 11

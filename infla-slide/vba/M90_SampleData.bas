@@ -117,6 +117,11 @@ Private Function SampleCsv(ByVal isNew As Boolean) As String
     Head "YZ0021", "土質試験費"
     Det "土の一軸圧縮試験", "試料", "", "", "2供試体/試料", 3, IIf(isNew, 10400, 10400)
 
+    ' スクラップ（数量がマイナス。㉒として工事価格の後に足す）
+    Head "Z0030", "スクラップ"
+    Head "YZ0031", "ｽｸﾗｯﾌﾟ"
+    Det "ｽｸﾗｯﾌﾟ", "t", "", "", "", -1.93, IIf(isNew, 23500, 9500)
+
     SampleCsv = mSb
 End Function
 

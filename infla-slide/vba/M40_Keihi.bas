@@ -141,13 +141,13 @@ Private Sub WriteKeihiLabels()
     Lb K_IKEI, "⑳一般管理費【合計】（端数整理後）　※⑰－⑲"
     Lb K_KAKAKU, "㉑工事価格　※⑬＋⑳"
     Sec 33, "工事費"
-    Lb K_SCRAP, "㉒スクラップ"
+    Lb K_SCRAP, "㉒スクラップ　※スライド計算表のスクラップ〇から集計"
     Lb K_KAKAKU2, "㉑'工事価格（スクラップ込み）　※㉑＋㉒"
     Lb K_ZEI, "㉓消費税相当額　※(㉑＋㉒)×消費税率"
     Lb K_KOUJIHI, "㉔工事費　※㉑＋㉒＋㉓"
 
     mWs.Cells(39, 2).Value = "※ B/C/D列は素材（直接工事費・積上分）のみ。経費はF/G列で計算します"
-    mWs.Cells(40, 2).Value = "※ 契約保証費は当初積算時から変更しません"
+    mWs.Cells(40, 2).Value = "※ 契約保証費は当初積算時から変更しません（手入力）"
     mWs.Cells(41, 2).Value = "※ ㉑'工事価格（スクラップ込み）を スライド調書（様式4-2号）へ転記します"
     mWs.Range("B39:B41").Font.Color = RGB(120, 120, 120)
 End Sub
@@ -174,7 +174,7 @@ Private Sub WriteSeries(ByVal c As Long, ByVal amtCol As Long, ByVal shoCol As L
                         ByVal exShin As Boolean, ByVal rateSrc As Long, _
                         ByVal unpan As String, ByVal gijutsu As String, _
                         ByVal kojo As String, ByVal zei As String)
-    Dim d1 As Long, d2 As Long
+    Dim d1 As Long, d2 As Long, a1 As Long, a2 As Long
     Dim shinCond As String
     Dim rc As Long
 
@@ -182,6 +182,8 @@ Private Sub WriteSeries(ByVal c As Long, ByVal amtCol As Long, ByVal shoCol As L
     ' 新工種を除く条件（SUMIFSの "<>" は環境差が出るため SUMPRODUCT で書く）
     shinCond = ""
     If exShin Then shinCond = "*(" & SR(SC_MK_SHIN, d1, d2) & "<>""〇"")"
+    ' スクラップは㉒として工事価格の後に足すので、直接工事費側からは外す
+    shinCond = shinCond & "*(" & SR(SC_MK_SCRAP, d1, d2) & "<>""〇"")"
 
     '--- 素材 ---
     ' ①直接工事費（明細行のみ。階層行は単価が空なので除外される）
@@ -206,6 +208,7 @@ Private Sub WriteSeries(ByVal c As Long, ByVal amtCol As Long, ByVal shoCol As L
     If gZFirst > 0 Then
         mWs.Cells(K_TSUMI2, c).Formula = "=SUMPRODUCT((" & SR(SC_TANKA_O, gZFirst, gZLast) & "<>"""")" & _
             IIf(exShin, "*(" & SR(SC_MK_SHIN, gZFirst, gZLast) & "<>""〇"")", "") & _
+            "*(" & SR(SC_MK_SCRAP, gZFirst, gZLast) & "<>""〇"")" & _
             "*(" & SR(amtCol, gZFirst, gZLast) & "))-" & Cel(K_UNPAN, c) & "-" & Cel(K_GIJUTSU, c)
     Else
         mWs.Cells(K_TSUMI2, c).Value = 0
@@ -273,8 +276,13 @@ Private Sub WriteSeries(ByVal c As Long, ByVal amtCol As Long, ByVal shoCol As L
     mWs.Cells(K_KAKAKU, c).Formula = "=" & Cel(K_GENKA, c) & "+" & Cel(K_IKEI, c)
 
     '--- 工事費 ---
-    mWs.Cells(K_SCRAP, c).Value = 0
-    MarkInput K_SCRAP, c
+    ' ㉒スクラップ：スクラップ〇の行をCSVから集計する
+    a1 = gDirectFirst
+    a2 = IIf(gZLast > 0, gZLast, gDirectLast)
+    mWs.Cells(K_SCRAP, c).Formula = "=SUMPRODUCT((" & SR(SC_TANKA_O, a1, a2) & "<>"""")*(" & _
+        SR(SC_MK_SCRAP, a1, a2) & "=""〇"")" & _
+        IIf(exShin, "*(" & SR(SC_MK_SHIN, a1, a2) & "<>""〇"")", "") & _
+        "*(" & SR(amtCol, a1, a2) & "))"
     mWs.Cells(K_KAKAKU2, c).Formula = "=" & Cel(K_KAKAKU, c) & "+" & Cel(K_SCRAP, c)
     mWs.Cells(K_ZEI, c).Formula = "=(" & Cel(K_KAKAKU, c) & "+" & Cel(K_SCRAP, c) & ")*" & zei
     mWs.Cells(K_KOUJIHI, c).Formula = "=" & Cel(K_KAKAKU, c) & "+" & Cel(K_SCRAP, c) & "+" & Cel(K_ZEI, c)
@@ -355,6 +363,7 @@ Private Function ZSum(ByVal rangeSpec As String, ByVal amtCol As Long, ByVal exS
 
     ZSum = "=SUMPRODUCT((" & SR(SC_TANKA_O, r1, r2) & "<>"""")" & _
            IIf(exShin, "*(" & SR(SC_MK_SHIN, r1, r2) & "<>""〇"")", "") & _
+           "*(" & SR(SC_MK_SCRAP, r1, r2) & "<>""〇"")" & _
            "*(" & SR(amtCol, r1, r2) & "))"
 End Function
 
