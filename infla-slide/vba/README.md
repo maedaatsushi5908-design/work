@@ -21,8 +21,8 @@
 | **`ALL_IN_ONE.bas`** | 何でも可 | **下の5つを1つにまとめたもの。これ1つ貼れば動きます** | ◎ |
 | `M00_Main.bas` | `M00_Main` | メイン処理・CSV読み込み・2本の突合 | ● |
 | `M10_CsvIO.bas` | `M10_CsvIO` | CSV読み書き・数値／文字列変換 | ● |
-| `M20_Slide.bas` | `M20_Slide` | 設定シート生成・スライド計算表（明細） | ● |
-| `M40_Keihi.bas` | `M40_Keihi` | 経費計算シート・スライド調書（様式4-2号） | ● |
+| `M20_Slide.bas` | `M20_Slide` | 設定シート生成・スライド計算表（明細＋経費計算） | ● |
+| `M40_Chosho.bas` | `M40_Chosho` | スライド調書（様式4-2号） | ● |
 | `M90_SampleData.bas` | `M90_SampleData` | 動作確認用サンプルCSV生成 | 任意 |
 ↑ `ALL_IN_ONE.bas` を使う場合、上の M00〜M90 は貼り付け不要です（両方入れると名前が重複します）
 | `M91_TemplateDump.bas` | `M91_TemplateDump` | シートの体裁をテキストに書き出す | 任意 |

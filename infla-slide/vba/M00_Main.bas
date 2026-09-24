@@ -85,9 +85,6 @@ Public Sub スライド計算表作成()
     Application.StatusBar = "スライド計算表を作成しています…"
     warn = BuildSlideSheet(cfg, recOld, recNew)
 
-    Application.StatusBar = "経費計算シートを作成しています…"
-    BuildKeihiSheet cfg
-
     Application.StatusBar = "スライド調書（様式4-2号）を作成しています…"
     BuildChosho cfg
 
@@ -96,21 +93,20 @@ Public Sub スライド計算表作成()
     Application.ScreenUpdating = True
     Application.StatusBar = False
 
-    MsgBox "3つのシートを作成しました。" & vbCrLf & _
-           "　・スライド計算表（明細）" & vbCrLf & _
-           "　・経費計算シート" & vbCrLf & _
+    MsgBox "2つのシートを作成しました。" & vbCrLf & _
+           "　・スライド計算表（明細＋経費計算）" & vbCrLf & _
            "　・スライド調書（様式4-2号）" & vbCrLf & vbCrLf & _
            "旧単価CSV：" & recOld.Count & " 行（採用系列：" & labelOld & "）" & vbCrLf & _
            "新単価CSV：" & recNew.Count & " 行（採用系列：" & labelNew & "）" & vbCrLf & vbCrLf & _
            IIf(warn = "", "突合はすべて一致しました。", warn) & vbCrLf & vbCrLf & _
            "次に黄色セルを手入力してください。" & vbCrLf & _
-           "【スライド計算表】" & vbCrLf & _
+           "【スライド計算表・明細部】" & vbCrLf & _
            "　・L列 出来形数量" & vbCrLf & _
            "　・O列 処分費〇／P列 管材費〇／Q列 新工種〇" & vbCrLf & _
-           "　・X列/Y列 処分費単価（合算単価から処分費分だけ）" & vbCrLf & _
-           "【経費計算シート】" & vbCrLf & _
-           "　・経費率（積算システムの値があれば上書き）" & vbCrLf & _
-           "　・⑯契約保証費／㉒スクラップ", vbInformation
+           "　・AA列/AB列 処分費単価（合算単価から処分費分だけ）" & vbCrLf & _
+           "【スライド計算表・経費計算部】" & vbCrLf & _
+           "　・⑦⑪⑮ 経費率（積算システムの値があれば上書き）" & vbCrLf & _
+           "　・⑯契約保証費", vbInformation
     Exit Sub
 
 NoData:
