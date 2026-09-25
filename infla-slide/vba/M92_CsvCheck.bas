@@ -18,7 +18,7 @@ Public Sub CSV構造チェック()
     Dim i As Long, r As Long
     Dim cfg As Object
     Dim code As String, lvl As String, kubun As String
-    Dim inZ As Boolean
+    Dim inZ As Boolean, inNaiyaku As Boolean
     Dim charSetName As String
 
     v = Application.GetOpenFilename("CSVファイル (*.csv),*.csv,すべてのファイル (*.*),*.*", , _
@@ -56,16 +56,24 @@ Public Sub CSV構造チェック()
 
     r = 4
     inZ = False
+    inNaiyaku = False
 
     For i = 1 To rows.Count
         arr = rows(i)
         code = Trim$(ColVal(arr, CSV_CODE))
         lvl = LevelOf(code)
 
+        If lvl = "費目" Then inNaiyaku = True
         If lvl = "Z" Then inZ = True
 
+        If Not inNaiyaku Then
+            ' X1000より前はGコードの単価表。内訳には入れない
+            kubun = "単価表部（内訳に入れません）"
+            GoTo WriteLine
+        End If
+
         Select Case lvl
-            Case "G":    kubun = "Gコード（計算表には出しません）"
+            Case "G":    kubun = "内訳の明細（Gコードの代価）"
             Case "費目": kubun = "費目（本工事費）"
             Case "L1":   kubun = IIf(inZ, "諸経費部", "直接工事費部") & "・工事区分"
             Case "L2":   kubun = IIf(inZ, "諸経費部", "直接工事費部") & "・工種"
@@ -77,6 +85,8 @@ Public Sub CSV構造チェック()
                                      "（使わない）", ZKubunPub(code, Trim$(ColVal(arr, CSV_NAME))))
             Case Else:   kubun = IIf(inZ, "諸経費部", "直接工事費部") & "・明細"
         End Select
+
+WriteLine:
 
         r = r + 1
         ws.Cells(r, 1).Value = i
@@ -124,6 +134,7 @@ Private Function ZKubunPub(ByVal code As String, ByVal nm As String) As String
     Dim n As Long
 
     If IsScrapName(nm) Then ZKubunPub = "ス（スクラップ）": Exit Function
+    If InStr(1, NormText(nm), NormText("支給品費")) > 0 Then Exit Function
 
     t = NormText(code)
     If Len(t) = 0 Then Exit Function
@@ -136,5 +147,11 @@ Private Function ZKubunPub(ByVal code As String, ByVal nm As String) As String
     If digits = "" Then Exit Function
 
     n = CLng(digits)
-    If n >= 1 And n < 40 Then ZKubunPub = "積（共通仮設費の積上分）"
+    If n < 40 Then
+        ZKubunPub = "積（共通仮設費の積上分）"
+    ElseIf n < 45 Then
+        ZKubunPub = "原（工事原価に加算）"
+    Else
+        ZKubunPub = "価（工事価格に加算）"
+    End If
 End Function

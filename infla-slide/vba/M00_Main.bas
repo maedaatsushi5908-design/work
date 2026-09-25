@@ -41,7 +41,8 @@ Public Const R_TANKA  As Long = 5
 Public Const R_SURYO  As Long = 6
 Public Const R_KIN    As Long = 7
 Public Const R_LEVEL  As Long = 8      ' "費目" "L1".."L4" "" "Z" "YZ" "G"
-Public Const R_COUNT  As Long = 9
+Public Const R_SURYO2 As Long = 9      ' 採用しなかった側の数量（新工種の自動判定に使う）
+Public Const R_COUNT  As Long = 10
 
 
 '==============================================================
@@ -196,10 +197,12 @@ Private Function LoadEstima(ByVal filePath As String, ByVal cfg As Object, _
             rec(R_TANKA) = ToNum(ColVal(arr, CSV_TANKA1))
             rec(R_SURYO) = ToNum(ColVal(arr, CSV_SURYO1))
             rec(R_KIN) = ToNum(ColVal(arr, CSV_KIN1))
+            rec(R_SURYO2) = ToNum(ColVal(arr, CSV_SURYO2))
         Else
             rec(R_TANKA) = ToNum(ColVal(arr, CSV_TANKA2))
             rec(R_SURYO) = ToNum(ColVal(arr, CSV_SURYO2))
             rec(R_KIN) = ToNum(ColVal(arr, CSV_KIN2))
+            rec(R_SURYO2) = ToNum(ColVal(arr, CSV_SURYO1))
         End If
 
         rec(R_LEVEL) = LevelOf(code)

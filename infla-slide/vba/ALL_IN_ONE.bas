@@ -52,7 +52,8 @@ Public Const R_TANKA  As Long = 5
 Public Const R_SURYO  As Long = 6
 Public Const R_KIN    As Long = 7
 Public Const R_LEVEL  As Long = 8      ' "費目" "L1".."L4" "" "Z" "YZ" "G"
-Public Const R_COUNT  As Long = 9
+Public Const R_SURYO2 As Long = 9      ' 採用しなかった側の数量（新工種の自動判定に使う）
+Public Const R_COUNT  As Long = 10
 
 '--- M10_CsvIO の宣言 ---
 Public Const F_KOSHU    As Long = 0   ' 工種
@@ -129,6 +130,9 @@ Private mScrapLevel As Long
 ' 経費計算部の作業用
 Private mKWs As Worksheet
 Private mKCfg As Object
+
+' 新工種を自動判定するか
+Private mAutoShin As Boolean
 
 '--- M40_Chosho の宣言 ---
 Public Const SH_CHOSHO As String = "スライド調書（様式4-2号）"
@@ -294,10 +298,12 @@ Private Function LoadEstima(ByVal filePath As String, ByVal cfg As Object, _
             rec(R_TANKA) = ToNum(ColVal(arr, CSV_TANKA1))
             rec(R_SURYO) = ToNum(ColVal(arr, CSV_SURYO1))
             rec(R_KIN) = ToNum(ColVal(arr, CSV_KIN1))
+            rec(R_SURYO2) = ToNum(ColVal(arr, CSV_SURYO2))
         Else
             rec(R_TANKA) = ToNum(ColVal(arr, CSV_TANKA2))
             rec(R_SURYO) = ToNum(ColVal(arr, CSV_SURYO2))
             rec(R_KIN) = ToNum(ColVal(arr, CSV_KIN2))
+            rec(R_SURYO2) = ToNum(ColVal(arr, CSV_SURYO1))
         End If
 
         rec(R_LEVEL) = LevelOf(code)
@@ -699,7 +705,9 @@ Public Sub 設定シート作成()
     PutItem ws, r, "新単価CSVパス", "", "基準日の単価適用日で出力したCSV。空欄なら実行時に選択": r = r + 1
     PutItem ws, r, "文字コード", "Shift_JIS", "UTF-8の場合は UTF-8 と入力":              r = r + 1
     PutItem ws, r, "区切り文字", ",":                                                   r = r + 1
-    PutItem ws, r, "使用系列", "自動", "自動／当初／変更。通常は自動（①側＝最新を採用）": r = r + 2
+    PutItem ws, r, "使用系列", "自動", "自動／当初／変更。通常は自動（①側＝最新を採用）": r = r + 1
+    PutItem ws, r, "新工種の自動判定", "する", _
+            "する／しない。採用しなかった側の数量が0で、採用側に数量がある明細にQ列の〇を付けます": r = r + 2
 
     PutHead ws, r, "【経費計算の設定】":                                                r = r + 1
     PutItem ws, r, "契約保証費", 0, "当初設計時の額で固定":                             r = r + 1
@@ -766,7 +774,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
     Dim lvl As String
     Dim lvlNum As Long
     Dim rowArr() As Long, lvlArr() As Long
-    Dim cnt As Long, firstZ As Long, skippedG As Long
+    Dim cnt As Long, firstZ As Long, firstX As Long, skippedG As Long
     Dim zCnt As Long, zRowArr() As Long, zLvlArr() As Long
     Dim curItem As String, curCode As String, curStart As Long
 
@@ -776,6 +784,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
     Set ws = FreshSheet(SH_SLIDE)
     Set gZList = New Collection
+    mAutoShin = (NormText(CStr(CfgVal(cfg, "新工種の自動判定", "する"))) = "する")
     WriteHeader ws, cfg
 
     ReDim rowArr(1 To n)
@@ -786,25 +795,39 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
     gDirectFirst = FIRST_ROW
     mScrapLevel = -1
 
-    '--- 直接工事費部（X1000配下）---
+    ' X1000（本工事費）の位置を探す。これより前はGコードの単価表なので内訳には入れない
+    firstX = 0
     For i = 1 To n
+        rec = recOld(i)
+        If CStr(rec(R_LEVEL)) = "費目" Then firstX = i: Exit For
+    Next i
+
+    If firstX = 0 Then
+        firstX = 1
+        warnText = warnText & IIf(warnText = "", "", vbCrLf) & _
+                   "★ X1000（本工事費）の行が見つかりませんでした。" & vbCrLf & _
+                   "　 単価表部を分けられないので、全行を内訳として扱っています。"
+    Else
+        skippedG = firstX - 1
+    End If
+
+    '--- 直接工事費部（X1000 〜 最初のZコードの直前）---
+    For i = firstX To n
         rec = recOld(i)
         lvl = CStr(rec(R_LEVEL))
 
-        If lvl = "G" Then
-            skippedG = skippedG + 1
-        ElseIf lvl = "Z" Then
-            ' 諸経費部の始まり。YZコードでは切らない（直接工事費の中にも現れるため）
+        If lvl = "Z" Then
+            ' 諸経費部の始まり。YZコード・Gコードでは切らない
             firstZ = i
             Exit For
-        Else
-            r = r + 1
-            lvlNum = LevelNum(lvl)
-            WriteRow ws, r, rec, newTanka(i), lvlNum, lvl
-            cnt = cnt + 1
-            rowArr(cnt) = r
-            lvlArr(cnt) = lvlNum
         End If
+
+        r = r + 1
+        lvlNum = LevelNum(lvl)
+        WriteRow ws, r, rec, newTanka(i), lvlNum, lvl
+        cnt = cnt + 1
+        rowArr(cnt) = r
+        lvlArr(cnt) = lvlNum
     Next i
 
     WriteSumFormulas ws, rowArr, lvlArr, cnt
@@ -823,7 +846,6 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
         For i = firstZ To n
             rec = recOld(i)
             lvl = CStr(rec(R_LEVEL))
-            If lvl = "G" Then GoTo NextZ
 
             r = r + 1
             lvlNum = LevelNum(lvl)
@@ -839,7 +861,6 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
             zCnt = zCnt + 1
             zRowArr(zCnt) = r
             zLvlArr(zCnt) = lvlNum
-NextZ:
         Next i
 
         If curItem <> "" Then gZList.Add Array(curItem, curCode, curStart, r)
@@ -857,7 +878,7 @@ NextZ:
 
     If skippedG > 0 Then
         warnText = warnText & IIf(warnText = "", "", vbCrLf) & _
-                   "Gコード行 " & skippedG & " 行は計算表に出していません。"
+                   "X1000より前の " & skippedG & " 行（Gコードの単価表）は内訳に入れていません。"
     End If
 
     BuildSlideSheet = warnText
@@ -932,7 +953,7 @@ Public Function LevelNum(ByVal lvl As String) As Long
         Case "L4":   LevelNum = 4
         Case "Z":    LevelNum = 1
         Case "YZ":   LevelNum = 2
-        Case Else:   LevelNum = 9
+        Case Else:   LevelNum = 9      ' 明細（Gコードの代価行もここ）
     End Select
 End Function
 
@@ -1047,6 +1068,12 @@ Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Varian
         ' スクラップは㉒として工事価格の後に足すので、①直接工事費からは外す
         If mScrapLevel >= 0 Or IsScrapName(CStr(rec(R_NAME))) Then
             ws.Cells(r, SC_MK_SCRAP).Value = "〇"
+        End If
+        ' 採用しなかった側の数量が0なら、この設計で追加された工種とみなす
+        If mAutoShin Then
+            If CDbl(rec(R_SURYO2)) = 0 And CDbl(rec(R_SURYO)) <> 0 Then
+                ws.Cells(r, SC_MK_SHIN).Value = "〇"
+            End If
         End If
     Else
         ws.Cells(r, SC_TANI).Value = "式"
@@ -1188,7 +1215,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     Dim rGTAISHO As Long, rGRITSU As Long, rGKEI As Long, rGENKA As Long
     Dim rITAISHO As Long, rIRITSU As Long, rIBUN As Long, rHOSHO As Long
     Dim rIKEI0 As Long, rKAKAKU0 As Long, rHASU As Long, rIKEI As Long, rKAKAKU As Long
-    Dim rSCRAP As Long
+    Dim rSCRAP As Long, rZGEN As Long, rZKAK As Long
 
     Set mKWs = ws
     Set mKCfg = cfg
@@ -1217,8 +1244,8 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rTAIGAI = r:  KLabel ws, r, "③②のうち率計算の対象外費　※②－(①－①'/2)×3%":       r = r + 1
 
     '--- Zコード項目を1行ずつ出す（区分は自動判定。R列で直せます）---
-    ws.Cells(r, SC_HIMOKU).Value = "─ 諸経費部のZコード項目　" & _
-        "※R列の区分　積＝共通仮設費の積上分／ス＝㉒スクラップ／空欄＝計算に使わない ─"
+    ws.Cells(r, SC_HIMOKU).Value = "─ 諸経費部のZコード項目　※R列の区分は手直しできます　" & _
+        "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／ス＝スクラップ(㉒)／空欄＝使わない ─"
     With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_MK_SCRAP))
         .Merge
         .Font.Color = RGB(120, 120, 120)
@@ -1251,7 +1278,8 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rGTAISHO = r: KLabel ws, r, "⑩現場管理費対象額　※⑨－③－①'/2":                    r = r + 1
     rGRITSU = r:  KLabel ws, r, "⑪現場管理費率":                                        r = r + 1
     rGKEI = r:    KLabel ws, r, "⑫現場管理費【合計】　※⑩×⑪":                          r = r + 1
-    rGENKA = r:   KLabel ws, r, "⑬工事原価　※⑨＋⑫":                                   r = r + 1
+    rZGEN = r:    KLabel ws, r, "⑫'工事原価に加算するZ項目　※区分「原」の合計":          r = r + 1
+    rGENKA = r:   KLabel ws, r, "⑬工事原価　※⑨＋⑫＋⑫'":                               r = r + 1
     rITAISHO = r: KLabel ws, r, "⑭一般管理費対象額　※⑬－③":                           r = r + 1
     rIRITSU = r:  KLabel ws, r, "⑮一般管理費率":                                        r = r + 1
     rIBUN = r:    KLabel ws, r, "⑮'一般管理費率分　※⑭×⑮":                            r = r + 1
@@ -1260,7 +1288,8 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rKAKAKU0 = r: KLabel ws, r, "⑱工事価格（端数整理前）　※⑬＋⑰":                      r = r + 1
     rHASU = r:    KLabel ws, r, "⑲端数整理":                                            r = r + 1
     rIKEI = r:    KLabel ws, r, "⑳一般管理費【合計】（端数整理後）　※⑰－⑲":           r = r + 1
-    rKAKAKU = r:  KLabel ws, r, "㉑工事価格　※⑬＋⑳":                                   r = r + 1
+    rZKAK = r:    KLabel ws, r, "⑳'工事価格に加算するZ項目　※区分「価」の合計":          r = r + 1
+    rKAKAKU = r:  KLabel ws, r, "㉑工事価格　※⑬＋⑳＋⑳'":                               r = r + 1
     rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」の項目＋明細のスクラップ〇":   r = r + 1
     gRowKakaku2 = r: KLabel ws, r, "㉑'工事価格（スクラップ込み）　※㉑＋㉒":             r = r + 1
     gRowZei = r:     KLabel ws, r, "㉓消費税相当額　※(㉑＋㉒)×消費税率":                r = r + 1
@@ -1308,7 +1337,9 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
                                         "-" & KC(rKANZAI, c) & "/2"
         KRate ws, rGRITSU, c, CLng(rateSrc(i)), cols, RateGenba(KC(rGTAISHO, c))
         ws.Cells(rGKEI, c).Formula = "=ROUNDDOWN(" & KC(rGTAISHO, c) & "*" & KC(rGRITSU, c) & ",-3)"
-        ws.Cells(rGENKA, c).Formula = "=" & KC(rJUN, c) & "+" & KC(rGKEI, c)
+        ws.Cells(rZGEN, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
+            "=""原"")*(" & KR(c, zRow1, zRow2) & "))"
+        ws.Cells(rGENKA, c).Formula = "=" & KC(rJUN, c) & "+" & KC(rGKEI, c) & "+" & KC(rZGEN, c)
 
         ws.Cells(rITAISHO, c).Formula = "=" & KC(rGENKA, c) & "-" & KC(rTAIGAI, c)
         KRate ws, rIRITSU, c, CLng(rateSrc(i)), cols, RateIppan(KC(rITAISHO, c))
@@ -1316,10 +1347,12 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ws.Cells(rHOSHO, c).Value = CDbl(CfgVal(cfg, "契約保証費", 0))
         ws.Cells(rHOSHO, c).Interior.Color = CLR_INPUT
         ws.Cells(rIKEI0, c).Formula = "=" & KC(rIBUN, c) & "+" & KC(rHOSHO, c)
-        ws.Cells(rKAKAKU0, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI0, c)
+        ws.Cells(rZKAK, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
+            "=""価"")*(" & KR(c, zRow1, zRow2) & "))"
+        ws.Cells(rKAKAKU0, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI0, c) & "+" & KC(rZKAK, c)
         ws.Cells(rHASU, c).Formula = "=" & KC(rKAKAKU0, c) & "-ROUNDDOWN(" & KC(rKAKAKU0, c) & ",-3)"
         ws.Cells(rIKEI, c).Formula = "=" & KC(rIKEI0, c) & "-" & KC(rHASU, c)
-        ws.Cells(rKAKAKU, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI, c)
+        ws.Cells(rKAKAKU, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI, c) & "+" & KC(rZKAK, c)
 
         ' ㉒スクラップ ＝ 区分「ス」のZ項目 ＋ 直接工事費部のスクラップ〇明細
         ws.Cells(rSCRAP, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
@@ -1421,17 +1454,27 @@ End Function
 
 
 ' Zコード項目の区分を自動判定する
-'   ス ＝ スクラップ（㉒へ）
-'   積 ＝ 共通仮設費の積上分（⑧へ）… 単価調整VBAで Z0040 の直前に共通仮設費率分が
-'        入ることから、Z0040より前のZコードを積上分とみなす
-'   空 ＝ 計算に使わない（Z0040以降の計算行。二重計上を避ける）
+'   積 ＝ 共通仮設費の積上分（④へ）　　… Z0001〜Z0039
+'   原 ＝ 工事原価に加算（⑫'へ）　　　 … Z0040〜Z0044（工期延長等に伴う増加費用など）
+'   価 ＝ 工事価格に加算（⑳'へ）　　　 … Z0045以降（設計委託費など）
+'   ス ＝ スクラップ（㉒へ）　　　　　　… 名称に「スクラップ」
+'   空 ＝ 使わない　　　　　　　　　　　… 支給品費（共通仮設費計から除く運用のため）
+' R列で手直しできます。
 Private Function ZKubun(ByVal code As String, ByVal nm As String) As String
     Dim n As Long
 
     If IsScrapName(nm) Then ZKubun = "ス": Exit Function
+    If InStr(1, NormText(nm), NormText("支給品費")) > 0 Then Exit Function
 
     n = ZCodeNum(code)
-    If n >= 1 And n < 40 Then ZKubun = "積"
+    If n = 0 Then ZKubun = "積": Exit Function          ' コードが読めなければ積上分とみなす
+    If n < 40 Then
+        ZKubun = "積"
+    ElseIf n < 45 Then
+        ZKubun = "原"
+    Else
+        ZKubun = "価"
+    End If
 End Function
 
 
@@ -1903,7 +1946,7 @@ Public Sub CSV構造チェック()
     Dim i As Long, r As Long
     Dim cfg As Object
     Dim code As String, lvl As String, kubun As String
-    Dim inZ As Boolean
+    Dim inZ As Boolean, inNaiyaku As Boolean
     Dim charSetName As String
 
     v = Application.GetOpenFilename("CSVファイル (*.csv),*.csv,すべてのファイル (*.*),*.*", , _
@@ -1941,16 +1984,24 @@ Public Sub CSV構造チェック()
 
     r = 4
     inZ = False
+    inNaiyaku = False
 
     For i = 1 To rows.Count
         arr = rows(i)
         code = Trim$(ColVal(arr, CSV_CODE))
         lvl = LevelOf(code)
 
+        If lvl = "費目" Then inNaiyaku = True
         If lvl = "Z" Then inZ = True
 
+        If Not inNaiyaku Then
+            ' X1000より前はGコードの単価表。内訳には入れない
+            kubun = "単価表部（内訳に入れません）"
+            GoTo WriteLine
+        End If
+
         Select Case lvl
-            Case "G":    kubun = "Gコード（計算表には出しません）"
+            Case "G":    kubun = "内訳の明細（Gコードの代価）"
             Case "費目": kubun = "費目（本工事費）"
             Case "L1":   kubun = IIf(inZ, "諸経費部", "直接工事費部") & "・工事区分"
             Case "L2":   kubun = IIf(inZ, "諸経費部", "直接工事費部") & "・工種"
@@ -1962,6 +2013,8 @@ Public Sub CSV構造チェック()
                                      "（使わない）", ZKubunPub(code, Trim$(ColVal(arr, CSV_NAME))))
             Case Else:   kubun = IIf(inZ, "諸経費部", "直接工事費部") & "・明細"
         End Select
+
+WriteLine:
 
         r = r + 1
         ws.Cells(r, 1).Value = i
@@ -2009,6 +2062,7 @@ Private Function ZKubunPub(ByVal code As String, ByVal nm As String) As String
     Dim n As Long
 
     If IsScrapName(nm) Then ZKubunPub = "ス（スクラップ）": Exit Function
+    If InStr(1, NormText(nm), NormText("支給品費")) > 0 Then Exit Function
 
     t = NormText(code)
     If Len(t) = 0 Then Exit Function
@@ -2021,5 +2075,11 @@ Private Function ZKubunPub(ByVal code As String, ByVal nm As String) As String
     If digits = "" Then Exit Function
 
     n = CLng(digits)
-    If n >= 1 And n < 40 Then ZKubunPub = "積（共通仮設費の積上分）"
+    If n < 40 Then
+        ZKubunPub = "積（共通仮設費の積上分）"
+    ElseIf n < 45 Then
+        ZKubunPub = "原（工事原価に加算）"
+    Else
+        ZKubunPub = "価（工事価格に加算）"
+    End If
 End Function
