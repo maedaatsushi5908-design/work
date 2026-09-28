@@ -24,33 +24,33 @@ function card(s, x, y, w, h, fill=C.light) {
 }
 function section(no, t, desc) {
   const s = pres.addSlide();
-  s.background = { color: C.navy };
+  s.background = { color: C.white };
   s.addText(String(no).padStart(2,'0'), { x:0.9, y:2.2, w:3, h:1.4, fontFace:'Arial', fontSize:80, bold:true, color:C.amber, margin:0, isTextBox:true });
-  s.addText(t, { x:0.9, y:3.7, w:11.5, h:0.9, fontFace:F, fontSize:34, bold:true, color:C.white, margin:0, isTextBox:true });
-  s.addText(desc, { x:0.9, y:4.6, w:11.5, h:0.5, fontFace:F, fontSize:16, color:'B9C8D4', margin:0, isTextBox:true });
+  s.addText(t, { x:0.9, y:3.7, w:11.5, h:0.9, fontFace:F, fontSize:34, bold:true, color:C.navy, margin:0, isTextBox:true });
+  s.addText(desc, { x:0.9, y:4.6, w:11.5, h:0.5, fontFace:F, fontSize:16, color:C.ph, margin:0, isTextBox:true });
   return s;
 }
 let n = 1;
 
 // 1 表紙
-{ const s = pres.addSlide(); s.background = { color:C.navy };
+{ const s = pres.addSlide(); s.background = { color:C.white };
   // motif: rising steps (price increase)
-  [1.2,1.9,2.7,3.6].forEach((h,i)=> s.addShape(pres.shapes.RECTANGLE,{ x:9.4+i*0.85, y:6.6-h, w:0.65, h, fill:{color:i===3?C.amber:C.navy2}, line:{color:i===3?C.amber:C.navy2} }));
-  s.addText('インフレスライドの計算方法と\n簡略化について', { x:0.9, y:1.7, w:8.5, h:2.0, fontFace:F, fontSize:36, bold:true, color:C.white, margin:0, isTextBox:true, valign:'top' });
-  s.addText('【会議名】打合せ資料', { x:0.9, y:3.9, w:8, h:0.5, fontFace:F, fontSize:18, color:'B9C8D4', margin:0, isTextBox:true });
-  s.addText('【20XX年XX月XX日】　【部署名・作成者名】', { x:0.9, y:5.8, w:8, h:0.4, fontFace:F, fontSize:14, color:'B9C8D4', margin:0, isTextBox:true });
+  [1.2,1.9,2.7,3.6].forEach((h,i)=> s.addShape(pres.shapes.RECTANGLE,{ x:9.4+i*0.85, y:6.6-h, w:0.65, h, fill:{color:i===3?C.amber:C.light}, line:{color:i===3?C.amber:C.light} }));
+  s.addText('インフレスライドの計算方法と\n簡略化について', { x:0.9, y:1.7, w:8.5, h:2.0, fontFace:F, fontSize:36, bold:true, color:C.navy, margin:0, isTextBox:true, valign:'top' });
+  s.addText('【会議名】打合せ資料', { x:0.9, y:3.9, w:8, h:0.5, fontFace:F, fontSize:18, color:C.ph, margin:0, isTextBox:true });
+  s.addText('【20XX年XX月XX日】　【部署名・作成者名】', { x:0.9, y:5.8, w:8, h:0.4, fontFace:F, fontSize:14, color:C.ph, margin:0, isTextBox:true });
   s.addNotes('表紙。会議名・日付・作成者を記入。');
 }
 n++;
 
 // 2 アジェンダ
-{ const s = pres.addSlide(); title(s,'本日のアジェンダ');
+{ const s = pres.addSlide(); title(s,'本日の内容');
   const items = [
     ['会議の目的・背景','本日決めたいこと／共有したいこと'],
     ['インフレスライドとは','制度の概要・適用要件・手続きの流れ'],
     ['計算方法','計算式・手順・計算例'],
     ['計算方法の簡略化','現行の課題・簡略化案の比較・効果'],
-    ['論点・今後の進め方','決定事項の確認・スケジュール・担当'],
+    ['本日の論点','ご議論いただきたい事項'],
   ];
   items.forEach(([h,d],i)=>{ const y=1.75+i*1.0;
     circleNum(s,i+1,0.9,y+0.05);
@@ -66,7 +66,7 @@ n++;
   const col=(x,h,lines)=>{ s.addText(h,{x:x+0.35,y:1.85,w:5.2,h:0.5,fontFace:F,fontSize:20,bold:true,color:C.navy,margin:0,isTextBox:true});
     s.addText(lines.map((t,i)=>({text:t,options:{bullet:true,color:C.ph,breakLine:i<lines.length-1}})),{x:x+0.35,y:2.5,w:5.2,h:3.7,fontFace:F,fontSize:15,valign:'top',paraSpaceAfter:10,margin:0,isTextBox:true}); };
   col(0.6,'背景',['【資材価格・労務単価の急激な変動状況】','【現行の計算事務で生じている課題】','【対象となる工事・契約の状況】']);
-  col(6.85,'本日の目的',['【インフレスライドの考え方を共有する】','【計算方法の簡略化案について意見を伺う】','【今後の進め方を決定する】']);
+  col(6.85,'本日の目的',['【インフレスライドの考え方を共有する】','【計算方法の簡略化案について意見を伺う】','【簡略化案の方向性を決定する】']);
   s.addText([{text:'本日決めたいこと：',options:{bold:true,color:C.navy}},{text:'【例：簡略化案の方向性（案A／案B）の決定】',options:{color:C.ph}}],{x:0.6,y:6.65,w:12.1,h:0.4,fontFace:F,fontSize:15,margin:0,isTextBox:true});
   footer(s,n++);
 }
@@ -107,22 +107,22 @@ section(1,'インフレスライドとは','制度の概要・適用要件・手
 section(2,'計算方法','計算式・算定手順・計算例'); n++;
 
 // 8 計算式
-{ const s = pres.addSlide(); title(s,'インフレスライド額の計算式');
-  card(s,0.6,1.6,12.1,1.7,C.navy);
-  s.addText([{text:'スライド額 S ＝ ',options:{color:C.white}},{text:'( P2 − P1 )',options:{color:C.amber}},{text:' − P1 × 1/100',options:{color:C.white}}],{x:0.6,y:1.6,w:12.1,h:1.7,fontFace:F,fontSize:34,bold:true,align:'center',valign:'middle',margin:0,isTextBox:true});
-  const defs=[['S','インフレスライド額','【定義・留意点を記入】'],['P1','変動前残工事代金額','【例：基準日における残工事量を変動前の単価で積算した額 × 落札率】'],['P2','変動後残工事代金額','【例：基準日における残工事量を変動後の単価で積算した額 × 落札率】'],['1/100','受注者負担分','【残工事費の1%を受注者が負担】']];
+{ const s = pres.addSlide(); title(s,'インフレスライド額の計算式','スライド調書（様式4-2号）の算式');
+  card(s,0.6,1.6,12.1,1.7,C.light);
+  s.addText([{text:"スライド額 S' ＝ ",options:{color:C.navy}},{text:"( P2' − P1' )",options:{color:C.amber}},{text:" − P1'' × 1/100",options:{color:C.navy}}],{x:0.6,y:1.6,w:12.1,h:1.7,fontFace:F,fontSize:34,bold:true,align:'center',valign:'middle',margin:0,isTextBox:true});
+  const defs=[["S'",'スライド額','増額スライドは1%を控除、減額スライドは1%を戻す（− → ＋）'],["P1'",'残工事（変動前・請負ベース）','④請負工事価格 − ⑥出来高（請負率考慮）'],["P2'",'残工事（変動後・請負ベース）','⑧変動後残工事 × 請負率（③/①）'],["P1''",'新工種抜きの残工事（請負ベース）','⑨ − ⑩　※受注者負担1%の母数（新工種は除く）']];
   defs.forEach(([k,h,d],i)=>{ const y=3.7+i*0.8;
     s.addShape(pres.shapes.ROUNDED_RECTANGLE,{x:0.6,y,w:1.2,h:0.6,fill:{color:C.light},line:{color:C.light},rectRadius:0.08});
-    s.addText(k,{x:0.6,y,w:1.2,h:0.6,fontFace:'Arial',fontSize:18,bold:true,color:C.navy,align:'center',valign:'middle',margin:0,isTextBox:true});
-    s.addText(h,{x:2.05,y,w:3.2,h:0.6,fontFace:F,fontSize:16,bold:true,color:C.text,valign:'middle',margin:0,isTextBox:true});
-    s.addText(d,{x:5.3,y,w:7.4,h:0.6,fontFace:F,fontSize:14,color:C.ph,valign:'middle',margin:0,isTextBox:true});
+    s.addText(k,{x:0.6,y,w:1.2,h:0.6,fontFace:'Arial',fontSize:17,bold:true,color:C.navy,align:'center',valign:'middle',margin:0,isTextBox:true});
+    s.addText(h,{x:2.05,y,w:3.6,h:0.6,fontFace:F,fontSize:14,bold:true,color:C.text,valign:'middle',margin:0,isTextBox:true});
+    s.addText(d,{x:5.8,y,w:6.9,h:0.6,fontFace:F,fontSize:14,color:C.text,valign:'middle',margin:0,isTextBox:true});
   });
   footer(s,n++);
 }
 
 // 9 計算手順
 { const s = pres.addSlide(); title(s,'計算の手順');
-  const steps=[['基準日を決定する','【請求日を基準日とする等、運用ルールを記入】'],['残工事量を確定する','【出来高確認の方法・対象外とするものを記入】'],['変動前後の単価を設定する','【使用する単価（設計単価・物価資料等）を記入】'],['P1・P2を積算する','【積算方法・落札率の扱いを記入】'],['スライド額を算定する','【端数処理・請求要件の確認方法を記入】']];
+  const steps=[['基準日を決定する','【請求日を基準日とする等、運用ルールを記入】'],['残工事量を確定する','【出来高確認の方法・対象外とするものを記入】'],['変動前後の単価を設定する','【使用する単価（設計単価・物価資料等）を記入】'],["P1'・P2'・P1''を算出する",'【経費計算・請負率の扱いを記入】'],['スライド額を算定する','【端数処理・請求要件の確認方法を記入】']];
   s.addShape(pres.shapes.LINE,{x:1.175,y:1.95,w:0,h:4.4,line:{color:C.line,width:2}});
   steps.forEach(([h,d],i)=>{ const y=1.7+i*0.95;
     circleNum(s,i+1,0.9,y,0.55,C.navy);
@@ -132,18 +132,38 @@ section(2,'計算方法','計算式・算定手順・計算例'); n++;
   footer(s,n++);
 }
 
-// 10 計算例
-{ const s = pres.addSlide(); title(s,'計算例','【数値はダミーです。実際の事例に置き換えてください】');
-  const hdr=(t)=>({text:t,options:{bold:true,color:C.white,fill:{color:C.navy},align:'center'}});
-  const r=(a,b,c)=>[{text:a,options:{bold:true,color:C.navy,fill:{color:C.light}}},{text:b,options:{align:'right',color:C.ph}},{text:c,options:{color:C.ph}}];
-  s.addTable([[hdr('項目'),hdr('金額（円）'),hdr('備考')],r('変動前残工事代金額 P1','【XXX,XXX,XXX】','【算定根拠】'),r('変動後残工事代金額 P2','【XXX,XXX,XXX】','【算定根拠】'),r('変動額 P2 − P1','【XX,XXX,XXX】',''),r('受注者負担 P1 × 1%','【X,XXX,XXX】',''),[{text:'スライド額 S',options:{bold:true,color:C.white,fill:{color:C.amber}}},{text:'【XX,XXX,XXX】',options:{bold:true,align:'right',color:C.text,fill:{color:'FBEBD6'}}},{text:'',options:{fill:{color:'FBEBD6'}}}]],
-    {x:0.6,y:1.8,w:8.0,colW:[3.0,2.3,2.7],rowH:0.62,fontFace:F,fontSize:14,valign:'middle',border:{type:'solid',pt:0.75,color:C.line}});
-  card(s,9.0,1.8,3.7,3.72,C.navy);
-  s.addText('スライド額',{x:9.2,y:2.1,w:3.3,h:0.4,fontFace:F,fontSize:16,color:'B9C8D4',align:'center',margin:0,isTextBox:true});
-  s.addText('【XX.X】',{x:9.2,y:2.7,w:3.3,h:1.1,fontFace:'Arial',fontSize:48,bold:true,color:C.amber,align:'center',margin:0,isTextBox:true});
-  s.addText('百万円',{x:9.2,y:3.8,w:3.3,h:0.4,fontFace:F,fontSize:16,color:C.white,align:'center',margin:0,isTextBox:true});
-  s.addText('請負代金額の【X.X】%',{x:9.2,y:4.5,w:3.3,h:0.4,fontFace:F,fontSize:14,color:'B9C8D4',align:'center',margin:0,isTextBox:true});
-  s.addText('【補足・注意点を記入】',{x:0.6,y:6.0,w:12.1,h:0.5,fontFace:F,fontSize:14,color:C.ph,margin:0,isTextBox:true});
+// 10 計算例（様式4-2号）
+{ const s = pres.addSlide(); title(s,'計算例（スライド調書 様式4-2号）','【試しデータ（203_経費計算シート（試し）新工種）の値です。実際の事例に置き換えてください】');
+  const B={type:'solid',pt:0.75,color:C.line};
+  const H=(t,o={})=>({text:t,options:{bold:true,color:C.white,fill:{color:C.navy},align:'center',...o}});
+  const L=(t,o={})=>({text:t,options:{bold:true,color:C.navy,fill:{color:C.light},...o}});
+  const sym=(t)=>({text:t,options:{color:C.navy2,align:'center',fontSize:11,fill:{color:'F7F9FA'}}});
+  const v=(t,o={})=>({text:t,options:{align:'right',color:C.text,...o}});
+  const d=()=>({text:'-',options:{align:'center',color:C.ph}});
+  const e=()=>({text:'',options:{fill:{color:'F7F9FA'}}});
+  const rows=[
+    [H('',{rowspan:2}),H('元設計',{rowspan:2}),H('出来高',{rowspan:2}),H('残工事',{colspan:2}),H('スライド額',{rowspan:2,fill:{color:C.amber}})],
+    [H('変動前'),H('変動後')],
+    [e(),sym('①'),e(),e(),e(),e()],
+    [L('設計額（税込）'),v('285,583,100'),d(),d(),d(),d()],
+    [e(),sym('②'),sym('⑤'),sym('⑦=②-⑤'),sym('⑧'),e()],
+    [L('工事価格（税抜）'),v('259,621,000'),v('93,076,000'),v('166,545,000'),v('170,224,000'),d()],
+    [L('消費税相当額'),v('25,962,100'),d(),d(),d(),d()],
+    [e(),sym('③'),e(),e(),e(),e()],
+    [L('請負代金額（税込）'),v('250,130,627'),d(),d(),d(),d()],
+    [e(),sym('④'),sym('⑥=⑤×(③/①)'),sym("P1'=④-⑥"),sym("P2'=⑧×(③/①)"),sym("S'=P2'-P1'-(P1''×1/100)")],
+    [L('請負工事価格（税抜）'),v('227,391,479'),v('81,521,484'),v('145,869,995'),v('149,092,281'),v('1,858,432',{bold:true,fill:{color:'FBEBD6'}})],
+    [L('消費税相当額'),v('22,739,148'),d(),d(),d(),d()],
+    [e(),sym('⑨'),sym('⑩'),sym("P1''=⑨-⑩"),e(),e()],
+    [L('請負工事価格（新工種抜き）'),v('218,181,818'),v('81,796,504'),v('136,385,314'),d(),d()],
+  ];
+  const sr=[2,4,7,9,12];
+  s.addTable(rows,{x:0.6,y:1.65,w:12.1,colW:[2.9,1.8,1.8,1.8,1.8,2.0],rowH:rows.map((_,i)=>sr.includes(i)?0.27:0.33),fontFace:F,fontSize:12,valign:'middle',border:B,margin:0.06});
+  s.addText([{text:'請負率 ③/① ＝ 87.5859%',options:{color:C.text,breakLine:true}},
+             {text:"S' ＝ 149,092,281 − 145,869,995 − 136,385,314 × 1/100 ＝ ",options:{color:C.text}},
+             {text:'1,858,432円（増額スライド）',options:{bold:true,color:C.amber}}],
+    {x:0.6,y:6.25,w:12.1,h:0.65,fontFace:F,fontSize:14,valign:'top',paraSpaceAfter:4,margin:0,isTextBox:true});
+  s.addNotes('様式4-2号の構成。数値は試しデータ。スライド額は円未満を切り捨て表示（元値 1,858,432.86）。');
   footer(s,n++);
 }
 
@@ -189,14 +209,14 @@ section(3,'計算方法の簡略化','現行の課題・簡略化案の比較・
     s.addText(unit,{x:x+0.3,y:4.1,w:3.1,h:0.4,fontFace:F,fontSize:15,color:dark?C.white:C.ph,align:'center',margin:0,isTextBox:true}); };
   stat(0.6,'現行','【XX】','日／件（作業日数）',false);
   s.addShape(pres.shapes.ISOSCELES_TRIANGLE,{x:4.37,y:3.3,w:0.4,h:0.4,rotate:90,fill:{color:C.line},line:{color:C.line}});
-  stat(4.8,'簡略化後','【XX】','日／件（作業日数）',true);
+  stat(4.8,'簡略化後','【XX】','日／件（作業日数）',false);
   stat(9.0,'削減効果','【XX】','%（削減率）',false);
   s.addText([{text:'試算の前提：',options:{bold:true,color:C.navy}},{text:'【対象件数・前提条件を記入】',options:{color:C.ph,breakLine:true}},{text:'精度への影響：',options:{bold:true,color:C.navy}},{text:'【現行との差額の試算結果を記入】',options:{color:C.ph}}],{x:0.6,y:5.5,w:12.1,h:1.1,fontFace:F,fontSize:14,valign:'top',paraSpaceAfter:6,margin:0,isTextBox:true});
   footer(s,n++);
 }
 
 // 15 section
-section(4,'論点・今後の進め方','本日の論点・スケジュール・担当'); n++;
+section(4,'本日の論点','ご議論いただきたい事項'); n++;
 
 // 16 論点
 { const s = pres.addSlide(); title(s,'本日ご議論いただきたい論点');
@@ -206,32 +226,6 @@ section(4,'論点・今後の進め方','本日の論点・スケジュール・
     s.addText('Q'+(i+1),{x:0.9,y,w:1.0,h:1.3,fontFace:'Arial',fontSize:32,bold:true,color:C.amber,valign:'middle',margin:0,isTextBox:true});
     s.addText([{text:q,options:{bold:true,color:C.navy,breakLine:true}},{text:'【補足・判断材料を記入】',options:{color:C.ph,fontSize:13}}],{x:2.0,y,w:10.4,h:1.3,fontFace:F,fontSize:17,valign:'middle',margin:0,isTextBox:true});
   });
-  footer(s,n++);
-}
-
-// 17 スケジュール
-{ const s = pres.addSlide(); title(s,'今後のスケジュール');
-  const ms=[['【XX月】','方針決定'],['【XX月】','運用ルール案作成'],['【XX月】','関係者調整・周知'],['【XX月】','試行開始'],['【XX月】','本格運用']];
-  const x0=1.7,x1=11.6,y=3.3; s.addShape(pres.shapes.LINE,{x:x0,y,w:x1-x0,h:0,line:{color:C.line,width:3}});
-  ms.forEach(([m,t],i)=>{ const cx=x0+i*((x1-x0)/(ms.length-1));
-    s.addShape(pres.shapes.OVAL,{x:cx-0.18,y:y-0.18,w:0.36,h:0.36,fill:{color:i===0?C.amber:C.navy},line:{color:C.white,width:2}});
-    s.addText(m,{x:cx-1.1,y:y-0.9,w:2.2,h:0.45,fontFace:F,fontSize:16,bold:true,color:C.navy,align:'center',margin:0,isTextBox:true});
-    s.addText(t,{x:cx-1.1,y:y+0.4,w:2.2,h:0.45,fontFace:F,fontSize:15,bold:true,color:C.text,align:'center',margin:0,isTextBox:true});
-    s.addText('【詳細】',{x:cx-1.1,y:y+0.85,w:2.2,h:0.4,fontFace:F,fontSize:13,color:C.ph,align:'center',margin:0,isTextBox:true});
-  });
-  footer(s,n++);
-}
-
-// 18 まとめ / 次回アクション
-{ const s = pres.addSlide(); title(s,'決定事項とネクストアクション');
-  card(s,0.6,1.6,4.6,4.9,C.navy);
-  s.addText('本日の決定事項',{x:0.9,y:1.85,w:4.0,h:0.5,fontFace:F,fontSize:20,bold:true,color:C.amber,margin:0,isTextBox:true});
-  s.addText(['【決定事項1】','【決定事項2】','【決定事項3】'].map((t,i,a)=>({text:t,options:{bullet:true,breakLine:i<a.length-1}})),{x:0.9,y:2.55,w:4.0,h:3.6,fontFace:F,fontSize:15,color:'D5DEE5',valign:'top',paraSpaceAfter:10,margin:0,isTextBox:true});
-  const hdr=(t)=>({text:t,options:{bold:true,color:C.white,fill:{color:C.navy},align:'center'}});
-  const row=(a)=>[{text:a,options:{color:C.ph}},{text:'【担当】',options:{color:C.ph,align:'center'}},{text:'【XX/XX】',options:{color:C.ph,align:'center'}}];
-  s.addTable([[hdr('アクション'),hdr('担当'),hdr('期限')],row('【アクション1】'),row('【アクション2】'),row('【アクション3】'),row('【アクション4】')],
-    {x:5.6,y:1.6,w:7.1,colW:[4.1,1.5,1.5],rowH:0.6,fontFace:F,fontSize:14,valign:'middle',border:{type:'solid',pt:0.75,color:C.line}});
-  s.addText([{text:'次回会議：',options:{bold:true,color:C.navy}},{text:'【XX月XX日（X）XX:XX〜】',options:{color:C.ph}}],{x:5.6,y:5.0,w:7.1,h:0.4,fontFace:F,fontSize:15,margin:0,isTextBox:true});
   footer(s,n++);
 }
 
