@@ -96,8 +96,8 @@ Public Const SC_B_REST   As Long = 23   ' W  スライド後・残工事    =M*J
 Public Const SC_N_ALL    As Long = 24   ' X  新工種抜き・全体      =IF(Q="〇",0,S)
 Public Const SC_N_DONE   As Long = 25   ' Y  新工種抜き・出来形    =IF(Q="〇",0,T)
 Public Const SC_TEKIYO   As Long = 26   ' Z  摘要
-Public Const SC_SP_O     As Long = 27   ' AA 処分費単価 スライド前 ★手入力
-Public Const SC_SP_N     As Long = 28   ' AB 処分費単価 スライド後 ★手入力
+Public Const SC_SHA_O    As Long = 27   ' AA 処分費額（全数量分）スライド前 ★手入力
+Public Const SC_SHA_N    As Long = 28   ' AB 処分費額（全数量分）スライド後 ★手入力
 Public Const SC_SA_ALL   As Long = 29   ' AC 処分費額 前・全体
 Public Const SC_SA_DONE  As Long = 30   ' AD 処分費額 前・出来形
 Public Const SC_SA_REST  As Long = 31   ' AE 処分費額 前・残工事
@@ -204,7 +204,7 @@ Public Sub スライド計算表作成()
            "【スライド計算表・明細部】" & vbCrLf & _
            "　・L列 出来形数量" & vbCrLf & _
            "　・O列 処分費〇／P列 管材費〇／Q列 新工種〇" & vbCrLf & _
-           "　・AA列/AB列 処分費単価（合算単価から処分費分だけ）" & vbCrLf & _
+           "　・AA列/AB列 処分費額（全数量分の金額。処分費と運搬費の合算額から処分費分だけ）" & vbCrLf & _
            "【スライド計算表・経費計算部】" & vbCrLf & _
            "　・⑦⑪⑮ 経費率（積算システムの値があれば上書き）" & vbCrLf & _
            "　・⑯契約保証費", vbInformation
@@ -974,9 +974,9 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(5, SC_N_ALL).Value = "全体"
     ws.Cells(5, SC_N_DONE).Value = "出来形"
     ws.Cells(3, SC_TEKIYO).Value = "摘要"
-    ws.Cells(3, SC_SP_O).Value = "処分費単価（手入力）"
-    ws.Cells(5, SC_SP_O).Value = "スライド前"
-    ws.Cells(5, SC_SP_N).Value = "スライド後"
+    ws.Cells(3, SC_SHA_O).Value = "処分費額（手入力・全数量分）"
+    ws.Cells(5, SC_SHA_O).Value = "スライド前"
+    ws.Cells(5, SC_SHA_N).Value = "スライド後"
     ws.Cells(3, SC_SA_ALL).Value = "処分費額"
     ws.Cells(5, SC_SA_ALL).Value = "前・全体"
     ws.Cells(5, SC_SA_DONE).Value = "前・出来形"
@@ -996,7 +996,7 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     End With
     ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, SC_MK_SHIN)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(3, SC_ZKUBUN), ws.Cells(6, SC_ZKUBUN)).Interior.Color = CLR_INPUT
-    ws.Range(ws.Cells(3, SC_SP_O), ws.Cells(6, SC_SP_N)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(3, SC_SHA_O), ws.Cells(6, SC_SHA_N)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(6, 1), ws.Cells(6, SC_LAST)).Borders(xlEdgeBottom).LineStyle = xlDouble
 End Sub
 
@@ -1056,8 +1056,9 @@ End Sub
 
 Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     Dim aI As String, aJ As String, aK As String, aL As String, aM As String
-    Dim aO As String, aQ As String, aX As String, aY As String
-    Dim spO As String, spN As String
+    Dim aO As String, aQ As String, aSO As String, aSN As String
+    Dim aAll As String, aBall As String
+    Dim shO As String, shN As String
 
     aI = ws.Cells(r, SC_TANKA_O).Address(False, False)
     aJ = ws.Cells(r, SC_TANKA_N).Address(False, False)
@@ -1066,12 +1067,10 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     aM = ws.Cells(r, SC_Q_REST).Address(False, False)
     aO = ws.Cells(r, SC_MK_SHOBU).Address(False, False)
     aQ = ws.Cells(r, SC_MK_SHIN).Address(False, False)
-    aX = ws.Cells(r, SC_SP_O).Address(False, False)
-    aY = ws.Cells(r, SC_SP_N).Address(False, False)
-
-    ' 処分費単価：未入力ならその行の設計単価を使う
-    spO = "IF(" & aX & "=""""," & aI & "," & aX & ")"
-    spN = "IF(" & aY & "="""",IF(" & aX & "=""""," & aJ & "," & aX & ")," & aY & ")"
+    aSO = ws.Cells(r, SC_SHA_O).Address(False, False)
+    aSN = ws.Cells(r, SC_SHA_N).Address(False, False)
+    aAll = ws.Cells(r, SC_A_ALL).Address(False, False)
+    aBall = ws.Cells(r, SC_B_ALL).Address(False, False)
 
     ws.Cells(r, SC_Q_REST).Formula = "=" & aK & "-" & aL
     ws.Cells(r, SC_A_ALL).Formula = "=" & aK & "*" & aI
@@ -1080,16 +1079,23 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     ws.Cells(r, SC_B_ALL).Formula = "=" & aK & "*" & aJ
     ws.Cells(r, SC_B_REST).Formula = "=" & aM & "*" & aJ
     ' 新工種抜き：新工種〇の行を0にする
-    ws.Cells(r, SC_N_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & _
-        ws.Cells(r, SC_A_ALL).Address(False, False) & ")"
+    ws.Cells(r, SC_N_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & aAll & ")"
     ws.Cells(r, SC_N_DONE).Formula = "=IF(" & aQ & "=""〇"",0," & _
         ws.Cells(r, SC_A_DONE).Address(False, False) & ")"
 
-    ws.Cells(r, SC_SA_ALL).Formula = "=IF(" & aO & "=""〇""," & aK & "*" & spO & ",0)"
-    ws.Cells(r, SC_SA_DONE).Formula = "=IF(" & aO & "=""〇""," & aL & "*" & spO & ",0)"
-    ws.Cells(r, SC_SA_REST).Formula = "=IF(" & aO & "=""〇""," & aM & "*" & spO & ",0)"
-    ws.Cells(r, SC_SB_ALL).Formula = "=IF(" & aO & "=""〇""," & aK & "*" & spN & ",0)"
-    ws.Cells(r, SC_SB_REST).Formula = "=IF(" & aO & "=""〇""," & aM & "*" & spN & ",0)"
+    ' 処分費額：全数量に対する金額を手入力し、出来形・残工事へは数量比で割り振る
+    ' 未入力ならその行の金額を全額 処分費とみなす
+    shO = "IF(" & aSO & "=""""," & aAll & "," & aSO & ")"
+    shN = "IF(" & aSN & "="""",IF(" & aSO & "=""""," & aBall & "," & aSO & ")," & aSN & ")"
+
+    ws.Cells(r, SC_SA_ALL).Formula = "=IF(" & aO & "<>""〇"",0," & shO & ")"
+    ws.Cells(r, SC_SA_DONE).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0," & _
+        shO & "*" & aL & "/" & aK & "))"
+    ws.Cells(r, SC_SA_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0," & _
+        shO & "*" & aM & "/" & aK & "))"
+    ws.Cells(r, SC_SB_ALL).Formula = "=IF(" & aO & "<>""〇"",0," & shN & ")"
+    ws.Cells(r, SC_SB_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0," & _
+        shN & "*" & aM & "/" & aK & "))"
     ws.Cells(r, SC_SN_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & _
         ws.Cells(r, SC_SA_ALL).Address(False, False) & ")"
     ws.Cells(r, SC_SN_DONE).Formula = "=IF(" & aQ & "=""〇"",0," & _
@@ -1518,11 +1524,11 @@ Private Sub FinishDetail(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Range(ws.Cells(FIRST_ROW, SC_TANKA_O), ws.Cells(lastRow, SC_TANKA_N)).NumberFormatLocal = "#,##0"
     ws.Range(ws.Cells(FIRST_ROW, SC_Q_ALL), ws.Cells(lastRow, SC_Q_REST)).NumberFormatLocal = "#,##0.00"
     ws.Range(ws.Cells(FIRST_ROW, SC_A_ALL), ws.Cells(lastRow, SC_N_DONE)).NumberFormatLocal = "#,##0"
-    ws.Range(ws.Cells(FIRST_ROW, SC_SP_O), ws.Cells(lastRow, SC_SN_DONE)).NumberFormatLocal = "#,##0"
+    ws.Range(ws.Cells(FIRST_ROW, SC_SHA_O), ws.Cells(lastRow, SC_SN_DONE)).NumberFormatLocal = "#,##0"
 
     ws.Range(ws.Cells(FIRST_ROW, SC_Q_DONE), ws.Cells(lastRow, SC_Q_DONE)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SHIN)).Interior.Color = CLR_INPUT
-    ws.Range(ws.Cells(FIRST_ROW, SC_SP_O), ws.Cells(lastRow, SC_SP_N)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(FIRST_ROW, SC_SHA_O), ws.Cells(lastRow, SC_SHA_N)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_ZKUBUN)).HorizontalAlignment = xlCenter
 
     For r = FIRST_ROW To lastRow
@@ -1542,7 +1548,7 @@ Private Sub FinishDetail(ByVal ws As Worksheet, ByVal lastRow As Long)
         If ws.Cells(r, SC_TANKA_O).Value = "" Then
             ws.Range(ws.Cells(r, SC_MK_SHOBU), ws.Cells(r, SC_MK_SHIN)).Interior.ColorIndex = xlColorIndexNone
             ws.Range(ws.Cells(r, SC_Q_DONE), ws.Cells(r, SC_Q_DONE)).Interior.ColorIndex = xlColorIndexNone
-            ws.Range(ws.Cells(r, SC_SP_O), ws.Cells(r, SC_SP_N)).Interior.ColorIndex = xlColorIndexNone
+            ws.Range(ws.Cells(r, SC_SHA_O), ws.Cells(r, SC_SHA_N)).Interior.ColorIndex = xlColorIndexNone
         End If
     Next r
 End Sub
@@ -1563,7 +1569,7 @@ Public Sub FinishSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Range(ws.Columns(SC_MK_SHOBU), ws.Columns(SC_ZKUBUN)).ColumnWidth = 6
     ws.Range(ws.Columns(SC_A_ALL), ws.Columns(SC_N_DONE)).ColumnWidth = 13
     ws.Columns(SC_TEKIYO).ColumnWidth = 24
-    ws.Range(ws.Columns(SC_SP_O), ws.Columns(SC_SN_DONE)).ColumnWidth = 11
+    ws.Range(ws.Columns(SC_SHA_O), ws.Columns(SC_SN_DONE)).ColumnWidth = 11
 
     With ws.PageSetup
         .Orientation = xlLandscape
