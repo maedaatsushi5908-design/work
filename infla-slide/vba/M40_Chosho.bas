@@ -16,10 +16,12 @@ Public Sub BuildChosho(ByVal cfg As Object)
     Dim contract As Double
     Dim fKoujihi As String, fKakaku As String, fDekidaka As String
     Dim fZanNew As String, fZei As String, fShinNuki As String, fShinNukiD As String
+    Dim zeiRate As String
 
     Set sl = ThisWorkbook.Worksheets(SH_SLIDE)
     Set ws = FreshSheet(SH_CHOSHO)
     contract = CDbl(CfgVal(cfg, "請負代金額", 0))
+    zeiRate = Format$(CDbl(CfgVal(cfg, "消費税率", 0.1)), "0.##########")
 
     ' スライド計算表へのリンク（S=前全体 T=前出来形 V=後全体 W=後残工事 X=新抜き全体 Y=新抜き出来形）
     fKoujihi = SlideRef(sl, gRowKoujihi, SC_A_ALL)
@@ -48,12 +50,8 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("B8").Value = "設計額（税込）"
     ws.Range("C8").Formula = "=" & fKoujihi
     ws.Range("H8").Value = "請負率(%)"
-    If contract > 0 Then
-        ws.Range("I8").Formula = "=" & Format$(contract, "0.##########") & "/C8*100"
-    Else
-        ws.Range("I8").Value = 100
-    End If
-    ws.Range("I8").Interior.Color = CLR_INPUT
+    ws.Range("I8").Formula = "=IF(C8=0,0,C14/C8*100)"
+    ws.Range("I8").Font.Color = RGB(120, 120, 120)
 
     ws.Range("C9").Value = "②": ws.Range("D9").Value = "⑤"
     ws.Range("E9").Value = "⑦=②-⑤": ws.Range("F9").Value = "⑧"
@@ -68,7 +66,10 @@ Public Sub BuildChosho(ByVal cfg As Object)
 
     ws.Range("C13").Value = "③"
     ws.Range("B14").Value = "請負代金額（税込）"
-    ws.Range("C14").Formula = "=ROUNDDOWN(C8*I8/100,0)"
+    ws.Range("C14").Value = contract
+    ws.Range("C14").Interior.Color = CLR_INPUT
+    ws.Range("H14").Value = "★手入力"
+    ws.Range("H14").Font.Color = RGB(192, 0, 0)
 
     ws.Range("B15").Value = "　請負工事価格"
     ws.Range("C15").Value = "④"
@@ -78,7 +79,7 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("G15").Formula = "=IF(E16>F16,""S'=P2'-P1'+（P1''×1/100）"",""S'=P2'-P1'-（P1''×1/100）"")"
 
     ws.Range("B16").Value = "　（請負代金額（税抜））"
-    ws.Range("C16").Formula = "=ROUNDDOWN(C14*10/11,0)"
+    ws.Range("C16").Formula = "=ROUNDDOWN(C14/(1+" & zeiRate & "),0)"
     ws.Range("D16").Formula = "=ROUNDDOWN(D10*C14/C8,0)"
     ws.Range("E16").Formula = "=C16-D16"
     ws.Range("F16").Formula = "=ROUNDDOWN(F10*C14/C8,0)"
@@ -97,9 +98,11 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("D20").Formula = "=ROUNDDOWN(" & fShinNukiD & "*C14/C8,0)"
     ws.Range("E20").Formula = "=C20-D20"
 
-    ws.Range("B22").Value = "※ P1''（新工種を抜いた請負ベースの残工事）が受注者負担1%の母数です"
-    ws.Range("B23").Value = "※ 金額はすべて「スライド計算表」の経費計算部からリンクしています"
-    ws.Range("B22:B23").Font.Color = RGB(120, 120, 120)
+    ws.Range("B22").Value = "※ 黄色いセル（請負代金額（税込））だけ手入力です。" & _
+                            "請負率・請負工事価格（税抜）・消費税相当額は計算で出ます"
+    ws.Range("B23").Value = "※ P1''（新工種を抜いた請負ベースの残工事）が受注者負担1%の母数です"
+    ws.Range("B24").Value = "※ 金額はすべて「スライド計算表」の経費計算部からリンクしています"
+    ws.Range("B22:B24").Font.Color = RGB(120, 120, 120)
 
     '--- 体裁 ---
     ws.Range("C5:C6").Merge

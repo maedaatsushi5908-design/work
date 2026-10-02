@@ -28,7 +28,7 @@ Public Const SC_TANI     As Long = 14   ' N  単位
 Public Const SC_MK_SHOBU As Long = 15   ' O  処分費〇      ★手入力
 Public Const SC_MK_KANZA As Long = 16   ' P  管材費〇      ★手入力
 Public Const SC_MK_SHIN  As Long = 17   ' Q  新工種〇      ★手入力
-Public Const SC_MK_SCRAP As Long = 18   ' R  スクラップ〇  ☆自動判定（修正可）
+Public Const SC_ZKUBUN   As Long = 18   ' R  区分（経費計算部のZコード項目でだけ使う）
 Public Const SC_A_ALL    As Long = 19   ' S  スライド前・全体      =K*I
 Public Const SC_A_DONE   As Long = 20   ' T  スライド前・出来形    =L*I
 Public Const SC_A_REST   As Long = 21   ' U  スライド前・残工事    =M*I
@@ -66,9 +66,6 @@ Public gRowKakaku2  As Long     ' ㉑'工事価格（スクラップ込み）の
 Public gRowZei      As Long     ' ㉓消費税相当額の行
 Public gRowKoujihi  As Long     ' ㉔工事費の行
 Public gLastRow     As Long
-
-' スクラップ行の判定用
-Private mScrapLevel As Long
 
 ' 経費計算部の作業用
 Private mKWs As Worksheet
@@ -115,7 +112,7 @@ Public Sub 設定シート作成()
     PutItem ws, r, "新単価CSVパス", "", "基準日の単価適用日で出力したCSV。空欄なら実行時に選択": r = r + 1
     PutItem ws, r, "文字コード", "Shift_JIS", "UTF-8の場合は UTF-8 と入力":              r = r + 1
     PutItem ws, r, "区切り文字", ",":                                                   r = r + 1
-    PutItem ws, r, "使用系列", "自動", "自動／当初／変更。通常は自動（①側＝最新を採用）": r = r + 1
+    PutItem ws, r, "使用系列", "変更", "変更／当初。CSVの①列＝変更設計、②列＝当初設計":      r = r + 1
     PutItem ws, r, "新工種の自動判定", "する", _
             "する／しない。採用しなかった側の数量が0で、採用側に数量がある明細にQ列の〇を付けます": r = r + 2
 
@@ -203,7 +200,6 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
     r = FIRST_ROW - 1
     firstZ = 0
     gDirectFirst = FIRST_ROW
-    mScrapLevel = -1
 
     ' X1000（本工事費）の位置を探す。これより前はGコードの単価表なので内訳には入れない
     firstX = 0
@@ -251,7 +247,6 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
         ReDim zLvlArr(1 To n)
         zCnt = 0
         curItem = "": curCode = "": curStart = 0
-        mScrapLevel = -1
 
         For i = firstZ To n
             rec = recOld(i)
@@ -396,7 +391,8 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(5, SC_MK_SHOBU).Value = "処分費"
     ws.Cells(5, SC_MK_KANZA).Value = "管材費"
     ws.Cells(5, SC_MK_SHIN).Value = "新工種"
-    ws.Cells(5, SC_MK_SCRAP).Value = "スクラップ"
+    ws.Cells(3, SC_ZKUBUN).Value = "区分"
+    ws.Cells(5, SC_ZKUBUN).Value = "経費計算部用"
     ws.Cells(3, SC_A_ALL).Value = "スライド前（旧単価）"
     ws.Cells(5, SC_A_ALL).Value = "全体"
     ws.Cells(5, SC_A_DONE).Value = "出来形"
@@ -428,7 +424,8 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
         .Interior.Color = CLR_HEAD
         .Borders.LineStyle = xlContinuous
     End With
-    ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, SC_MK_SCRAP)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, SC_MK_SHIN)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(3, SC_ZKUBUN), ws.Cells(6, SC_ZKUBUN)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(3, SC_SP_O), ws.Cells(6, SC_SP_N)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(6, 1), ws.Cells(6, SC_LAST)).Borders(xlEdgeBottom).LineStyle = xlDouble
 End Sub
@@ -475,10 +472,6 @@ Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Varian
         ws.Cells(r, SC_Q_ALL).Value = rec(R_SURYO)
         ws.Cells(r, SC_TANI).Value = rec(R_TANI)
         WriteDetailFormulas ws, r
-        ' スクラップは㉒として工事価格の後に足すので、①直接工事費からは外す
-        If mScrapLevel >= 0 Or IsScrapName(CStr(rec(R_NAME))) Then
-            ws.Cells(r, SC_MK_SCRAP).Value = "〇"
-        End If
         ' 採用しなかった側の数量が0なら、この設計で追加された工種とみなす
         If mAutoShin Then
             If CDbl(rec(R_SURYO2)) = 0 And CDbl(rec(R_SURYO)) <> 0 Then
@@ -487,8 +480,6 @@ Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Varian
         End If
     Else
         ws.Cells(r, SC_TANI).Value = "式"
-        If mScrapLevel >= 0 And lvlNum <= mScrapLevel Then mScrapLevel = -1
-        If IsScrapName(CStr(rec(R_NAME))) Then mScrapLevel = lvlNum
     End If
 End Sub
 
@@ -641,7 +632,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     '--- 行番号を先に確定させる ---
     r = startRow
     ws.Cells(r, SC_HIMOKU).Value = "【経費計算】　※黄色セルは手入力。経費率は積算システムの値があれば上書きしてください"
-    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_MK_SCRAP))
+    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .Font.Bold = True
         .Interior.Color = CLR_HEAD
@@ -656,7 +647,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     '--- Zコード項目を1行ずつ出す（区分は自動判定。R列で直せます）---
     ws.Cells(r, SC_HIMOKU).Value = "─ 諸経費部のZコード項目　※R列の区分は手直しできます　" & _
         "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／ス＝スクラップ(㉒)／空欄＝使わない ─"
-    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_MK_SCRAP))
+    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .Font.Color = RGB(120, 120, 120)
     End With
@@ -667,9 +658,9 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         For z = 1 To gZList.Count
             zi = gZList(z)
             KLabelZ ws, r, "　" & CStr(zi(1)) & "　" & CStr(zi(0))
-            ws.Cells(r, SC_MK_SCRAP).Value = ZKubun(CStr(zi(1)), CStr(zi(0)))
-            ws.Cells(r, SC_MK_SCRAP).Interior.Color = CLR_INPUT
-            ws.Cells(r, SC_MK_SCRAP).HorizontalAlignment = xlCenter
+            ws.Cells(r, SC_ZKUBUN).Value = ZKubun(CStr(zi(1)), CStr(zi(0)))
+            ws.Cells(r, SC_ZKUBUN).Interior.Color = CLR_INPUT
+            ws.Cells(r, SC_ZKUBUN).HorizontalAlignment = xlCenter
             For i = 0 To 6
                 ws.Cells(r, CLng(cols(i))).Formula = ZRangeSum(CLng(zi(2)), CLng(zi(3)), CLng(cols(i)))
             Next i
@@ -700,7 +691,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rIKEI = r:    KLabel ws, r, "⑳一般管理費【合計】（端数整理後）　※⑰－⑲":           r = r + 1
     rZKAK = r:    KLabel ws, r, "⑳'工事価格に加算するZ項目　※区分「価」の合計":          r = r + 1
     rKAKAKU = r:  KLabel ws, r, "㉑工事価格　※⑬＋⑳＋⑳'":                               r = r + 1
-    rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」の項目＋明細のスクラップ〇":   r = r + 1
+    rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」のZコード項目の合計":              r = r + 1
     gRowKakaku2 = r: KLabel ws, r, "㉑'工事価格（スクラップ込み）　※㉑＋㉒":             r = r + 1
     gRowZei = r:     KLabel ws, r, "㉓消費税相当額　※(㉑＋㉒)×消費税率":                r = r + 1
     gRowKoujihi = r: KLabel ws, r, "㉔工事費　※㉑＋㉒＋㉓":                              r = r + 1
@@ -711,22 +702,19 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
 
         ' ①直接工事費（明細行のみ。スクラップ〇は㉒へまわす）
         ws.Cells(rDCHOKU, c).Formula = "=SUMPRODUCT((" & KR(SC_TANKA_O, gDirectFirst, gDirectLast) & _
-            "<>"""")*(" & KR(SC_MK_SCRAP, gDirectFirst, gDirectLast) & "<>""〇"")*(" & _
-            KR(c, gDirectFirst, gDirectLast) & "))"
+            "<>"""")*(" & KR(c, gDirectFirst, gDirectLast) & "))"
 
         ws.Cells(rKANZAI, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_KANZA, gDirectFirst, gDirectLast) & _
-            "=""〇"")*(" & KR(SC_MK_SCRAP, gDirectFirst, gDirectLast) & "<>""〇"")*(" & _
-            KR(c, gDirectFirst, gDirectLast) & "))"
+            "=""〇"")*(" & KR(c, gDirectFirst, gDirectLast) & "))"
 
         ws.Cells(rSHOBUN, c).Formula = "=SUMPRODUCT((" & KR(SC_TANKA_O, gDirectFirst, gDirectLast) & _
-            "<>"""")*(" & KR(SC_MK_SCRAP, gDirectFirst, gDirectLast) & "<>""〇"")*(" & _
-            KR(CLng(shoCols(i)), gDirectFirst, gDirectLast) & "))"
+            "<>"""")*(" & KR(CLng(shoCols(i)), gDirectFirst, gDirectLast) & "))"
 
         ws.Cells(rTAIGAI, c).Formula = "=MAX(0," & KC(rSHOBUN, c) & "-ROUNDDOWN((" & _
             KC(rDCHOKU, c) & "-" & KC(rKANZAI, c) & "/2)*" & kojo & ",0))"
 
         ' ④積上分 計 ＝ 区分「積」のZ項目の合計
-        ws.Cells(rTSUMI, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
+        ws.Cells(rTSUMI, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""積"")*(" & KR(c, zRow1, zRow2) & "))"
 
         If CLng(rateSrc(i)) < 0 Then
@@ -747,7 +735,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
                                         "-" & KC(rKANZAI, c) & "/2"
         KRate ws, rGRITSU, c, CLng(rateSrc(i)), cols, RateGenba(KC(rGTAISHO, c))
         ws.Cells(rGKEI, c).Formula = "=ROUNDDOWN(" & KC(rGTAISHO, c) & "*" & KC(rGRITSU, c) & ",-3)"
-        ws.Cells(rZGEN, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
+        ws.Cells(rZGEN, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""原"")*(" & KR(c, zRow1, zRow2) & "))"
         ws.Cells(rGENKA, c).Formula = "=" & KC(rJUN, c) & "+" & KC(rGKEI, c) & "+" & KC(rZGEN, c)
 
@@ -757,19 +745,16 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ws.Cells(rHOSHO, c).Value = CDbl(CfgVal(cfg, "契約保証費", 0))
         ws.Cells(rHOSHO, c).Interior.Color = CLR_INPUT
         ws.Cells(rIKEI0, c).Formula = "=" & KC(rIBUN, c) & "+" & KC(rHOSHO, c)
-        ws.Cells(rZKAK, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
+        ws.Cells(rZKAK, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""価"")*(" & KR(c, zRow1, zRow2) & "))"
         ws.Cells(rKAKAKU0, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI0, c) & "+" & KC(rZKAK, c)
         ws.Cells(rHASU, c).Formula = "=" & KC(rKAKAKU0, c) & "-ROUNDDOWN(" & KC(rKAKAKU0, c) & ",-3)"
         ws.Cells(rIKEI, c).Formula = "=" & KC(rIKEI0, c) & "-" & KC(rHASU, c)
         ws.Cells(rKAKAKU, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI, c) & "+" & KC(rZKAK, c)
 
-        ' ㉒スクラップ ＝ 区分「ス」のZ項目 ＋ 直接工事費部のスクラップ〇明細
-        ws.Cells(rSCRAP, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
-            "=""ス"")*(" & KR(c, zRow1, zRow2) & "))+SUMPRODUCT((" & _
-            KR(SC_TANKA_O, gDirectFirst, gDirectLast) & "<>"""")*(" & _
-            KR(SC_MK_SCRAP, gDirectFirst, gDirectLast) & "=""〇"")*(" & _
-            KR(c, gDirectFirst, gDirectLast) & "))"
+        ' ㉒スクラップ ＝ 区分「ス」のZ項目
+        ws.Cells(rSCRAP, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
+            "=""ス"")*(" & KR(c, zRow1, zRow2) & "))"
 
         ws.Cells(gRowKakaku2, c).Formula = "=" & KC(rKAKAKU, c) & "+" & KC(rSCRAP, c)
         ws.Cells(gRowZei, c).Formula = "=(" & KC(rKAKAKU, c) & "+" & KC(rSCRAP, c) & ")*" & zei
@@ -808,7 +793,7 @@ End Function
 '--------------------------------------------------------------
 Private Sub KLabel(ByVal ws As Worksheet, ByVal r As Long, ByVal s As String)
     ws.Cells(r, SC_HIMOKU).Value = s
-    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_MK_SCRAP))
+    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .HorizontalAlignment = xlLeft
         .Borders.LineStyle = xlContinuous
@@ -823,7 +808,7 @@ Private Sub KLabelZ(ByVal ws As Worksheet, ByVal r As Long, ByVal s As String)
         .HorizontalAlignment = xlLeft
         .Borders.LineStyle = xlContinuous
     End With
-    ws.Cells(r, SC_MK_SCRAP).Borders.LineStyle = xlContinuous
+    ws.Cells(r, SC_ZKUBUN).Borders.LineStyle = xlContinuous
 End Sub
 
 
@@ -966,9 +951,9 @@ Private Sub FinishDetail(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Range(ws.Cells(FIRST_ROW, SC_SP_O), ws.Cells(lastRow, SC_SN_DONE)).NumberFormatLocal = "#,##0"
 
     ws.Range(ws.Cells(FIRST_ROW, SC_Q_DONE), ws.Cells(lastRow, SC_Q_DONE)).Interior.Color = CLR_INPUT
-    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SCRAP)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SHIN)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(FIRST_ROW, SC_SP_O), ws.Cells(lastRow, SC_SP_N)).Interior.Color = CLR_INPUT
-    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SCRAP)).HorizontalAlignment = xlCenter
+    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_ZKUBUN)).HorizontalAlignment = xlCenter
 
     For r = FIRST_ROW To lastRow
         If ws.Cells(r, SC_HIMOKU).Value <> "" Then
@@ -985,7 +970,7 @@ Private Sub FinishDetail(ByVal ws As Worksheet, ByVal lastRow As Long)
         End If
         ' 階層行には手入力欄を出さない
         If ws.Cells(r, SC_TANKA_O).Value = "" Then
-            ws.Range(ws.Cells(r, SC_MK_SHOBU), ws.Cells(r, SC_MK_SCRAP)).Interior.ColorIndex = xlColorIndexNone
+            ws.Range(ws.Cells(r, SC_MK_SHOBU), ws.Cells(r, SC_MK_SHIN)).Interior.ColorIndex = xlColorIndexNone
             ws.Range(ws.Cells(r, SC_Q_DONE), ws.Cells(r, SC_Q_DONE)).Interior.ColorIndex = xlColorIndexNone
             ws.Range(ws.Cells(r, SC_SP_O), ws.Cells(r, SC_SP_N)).Interior.ColorIndex = xlColorIndexNone
         End If
@@ -1005,7 +990,7 @@ Public Sub FinishSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Columns(SC_KIKAKU).ColumnWidth = 22
     ws.Range(ws.Columns(SC_TANKA_O), ws.Columns(SC_Q_REST)).ColumnWidth = 10
     ws.Columns(SC_TANI).ColumnWidth = 6
-    ws.Range(ws.Columns(SC_MK_SHOBU), ws.Columns(SC_MK_SCRAP)).ColumnWidth = 6
+    ws.Range(ws.Columns(SC_MK_SHOBU), ws.Columns(SC_ZKUBUN)).ColumnWidth = 6
     ws.Range(ws.Columns(SC_A_ALL), ws.Columns(SC_N_DONE)).ColumnWidth = 13
     ws.Columns(SC_TEKIYO).ColumnWidth = 24
     ws.Range(ws.Columns(SC_SP_O), ws.Columns(SC_SN_DONE)).ColumnWidth = 11

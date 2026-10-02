@@ -14,6 +14,8 @@
 '   ・スライド計算表（明細＋経費計算）
 '   ・スライド調書（様式4-2号）… スライド計算表からリンク
 '
+' CSVの前提：①列＝変更設計、②列＝当初設計
+'
 ' そのほかのマクロ
 '   ・CSV構造チェック … CSVのコードと名称だけを書き出す（金額は出しません）
 '   ・テスト用CSV作成 … 動作確認用のサンプルCSVを2本作る
@@ -85,7 +87,7 @@ Public Const SC_TANI     As Long = 14   ' N  単位
 Public Const SC_MK_SHOBU As Long = 15   ' O  処分費〇      ★手入力
 Public Const SC_MK_KANZA As Long = 16   ' P  管材費〇      ★手入力
 Public Const SC_MK_SHIN  As Long = 17   ' Q  新工種〇      ★手入力
-Public Const SC_MK_SCRAP As Long = 18   ' R  スクラップ〇  ☆自動判定（修正可）
+Public Const SC_ZKUBUN   As Long = 18   ' R  区分（経費計算部のZコード項目でだけ使う）
 Public Const SC_A_ALL    As Long = 19   ' S  スライド前・全体      =K*I
 Public Const SC_A_DONE   As Long = 20   ' T  スライド前・出来形    =L*I
 Public Const SC_A_REST   As Long = 21   ' U  スライド前・残工事    =M*I
@@ -123,9 +125,6 @@ Public gRowKakaku2  As Long     ' ㉑'工事価格（スクラップ込み）の
 Public gRowZei      As Long     ' ㉓消費税相当額の行
 Public gRowKoujihi  As Long     ' ㉔工事費の行
 Public gLastRow     As Long
-
-' スクラップ行の判定用
-Private mScrapLevel As Long
 
 ' 経費計算部の作業用
 Private mKWs As Worksheet
@@ -228,14 +227,13 @@ End Sub
 
 '==============================================================
 ' エスティマCSVの読み込み
-'   usedLabel に採用した系列（"当初" / "変更"）を返す
+'   ①列＝変更設計、②列＝当初設計。usedLabel に採用した側を返す
 '==============================================================
 Private Function LoadEstima(ByVal filePath As String, ByVal cfg As Object, _
                             ByRef usedLabel As String) As Collection
     Dim rows As Collection, recs As Collection
     Dim arr() As String
-    Dim i As Long, rx1000 As Long
-    Dim firstIsToshu As Boolean
+    Dim i As Long
     Dim useFirst As Boolean
     Dim seriesName As String
     Dim rec As Variant
@@ -251,35 +249,14 @@ Private Function LoadEstima(ByVal filePath As String, ByVal cfg As Object, _
         Exit Function
     End If
 
-    '--- X1000（本工事費）の位置を探す ---
-    rx1000 = 0
-    For i = 1 To rows.Count
-        arr = rows(i)
-        If InStr(1, ColVal(arr, CSV_CODE), "X1000", vbTextCompare) > 0 Then
-            rx1000 = i
-            Exit For
-        End If
-    Next i
-
-    '--- ①が当初か変更かを判定（X1000の次の行の設計金額②が0なら ①＝当初）---
-    firstIsToshu = True
-    If rx1000 > 0 And rx1000 < rows.Count Then
-        arr = rows(rx1000 + 1)
-        If ToNum(ColVal(arr, CSV_KIN2)) <> 0 Then firstIsToshu = False
-    End If
-
-    '--- 使用する系列を決める ---
-    seriesName = CStr(CfgVal(cfg, "使用系列", "自動"))
-    Select Case seriesName
-        Case "当初": useFirst = firstIsToshu
-        Case "変更": useFirst = Not firstIsToshu
-        Case Else:   useFirst = True        ' 自動＝①（常に最新側）
-    End Select
-
-    If useFirst Then
-        usedLabel = IIf(firstIsToshu, "当初", "変更")
+    '--- ①＝変更、②＝当初（積算システムの出力仕様）---
+    seriesName = NormText(CStr(CfgVal(cfg, "使用系列", "変更")))
+    If seriesName = NormText("当初") Then
+        useFirst = False
+        usedLabel = "当初"
     Else
-        usedLabel = IIf(firstIsToshu, "変更", "当初")
+        useFirst = True
+        usedLabel = "変更"
     End If
 
     '--- 明細を組み立てる ---
@@ -705,7 +682,7 @@ Public Sub 設定シート作成()
     PutItem ws, r, "新単価CSVパス", "", "基準日の単価適用日で出力したCSV。空欄なら実行時に選択": r = r + 1
     PutItem ws, r, "文字コード", "Shift_JIS", "UTF-8の場合は UTF-8 と入力":              r = r + 1
     PutItem ws, r, "区切り文字", ",":                                                   r = r + 1
-    PutItem ws, r, "使用系列", "自動", "自動／当初／変更。通常は自動（①側＝最新を採用）": r = r + 1
+    PutItem ws, r, "使用系列", "変更", "変更／当初。CSVの①列＝変更設計、②列＝当初設計":      r = r + 1
     PutItem ws, r, "新工種の自動判定", "する", _
             "する／しない。採用しなかった側の数量が0で、採用側に数量がある明細にQ列の〇を付けます": r = r + 2
 
@@ -793,7 +770,6 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
     r = FIRST_ROW - 1
     firstZ = 0
     gDirectFirst = FIRST_ROW
-    mScrapLevel = -1
 
     ' X1000（本工事費）の位置を探す。これより前はGコードの単価表なので内訳には入れない
     firstX = 0
@@ -841,7 +817,6 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
         ReDim zLvlArr(1 To n)
         zCnt = 0
         curItem = "": curCode = "": curStart = 0
-        mScrapLevel = -1
 
         For i = firstZ To n
             rec = recOld(i)
@@ -986,7 +961,8 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(5, SC_MK_SHOBU).Value = "処分費"
     ws.Cells(5, SC_MK_KANZA).Value = "管材費"
     ws.Cells(5, SC_MK_SHIN).Value = "新工種"
-    ws.Cells(5, SC_MK_SCRAP).Value = "スクラップ"
+    ws.Cells(3, SC_ZKUBUN).Value = "区分"
+    ws.Cells(5, SC_ZKUBUN).Value = "経費計算部用"
     ws.Cells(3, SC_A_ALL).Value = "スライド前（旧単価）"
     ws.Cells(5, SC_A_ALL).Value = "全体"
     ws.Cells(5, SC_A_DONE).Value = "出来形"
@@ -1018,7 +994,8 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
         .Interior.Color = CLR_HEAD
         .Borders.LineStyle = xlContinuous
     End With
-    ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, SC_MK_SCRAP)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, SC_MK_SHIN)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(3, SC_ZKUBUN), ws.Cells(6, SC_ZKUBUN)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(3, SC_SP_O), ws.Cells(6, SC_SP_N)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(6, 1), ws.Cells(6, SC_LAST)).Borders(xlEdgeBottom).LineStyle = xlDouble
 End Sub
@@ -1065,10 +1042,6 @@ Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Varian
         ws.Cells(r, SC_Q_ALL).Value = rec(R_SURYO)
         ws.Cells(r, SC_TANI).Value = rec(R_TANI)
         WriteDetailFormulas ws, r
-        ' スクラップは㉒として工事価格の後に足すので、①直接工事費からは外す
-        If mScrapLevel >= 0 Or IsScrapName(CStr(rec(R_NAME))) Then
-            ws.Cells(r, SC_MK_SCRAP).Value = "〇"
-        End If
         ' 採用しなかった側の数量が0なら、この設計で追加された工種とみなす
         If mAutoShin Then
             If CDbl(rec(R_SURYO2)) = 0 And CDbl(rec(R_SURYO)) <> 0 Then
@@ -1077,8 +1050,6 @@ Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Varian
         End If
     Else
         ws.Cells(r, SC_TANI).Value = "式"
-        If mScrapLevel >= 0 And lvlNum <= mScrapLevel Then mScrapLevel = -1
-        If IsScrapName(CStr(rec(R_NAME))) Then mScrapLevel = lvlNum
     End If
 End Sub
 
@@ -1231,7 +1202,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     '--- 行番号を先に確定させる ---
     r = startRow
     ws.Cells(r, SC_HIMOKU).Value = "【経費計算】　※黄色セルは手入力。経費率は積算システムの値があれば上書きしてください"
-    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_MK_SCRAP))
+    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .Font.Bold = True
         .Interior.Color = CLR_HEAD
@@ -1246,7 +1217,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     '--- Zコード項目を1行ずつ出す（区分は自動判定。R列で直せます）---
     ws.Cells(r, SC_HIMOKU).Value = "─ 諸経費部のZコード項目　※R列の区分は手直しできます　" & _
         "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／ス＝スクラップ(㉒)／空欄＝使わない ─"
-    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_MK_SCRAP))
+    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .Font.Color = RGB(120, 120, 120)
     End With
@@ -1257,9 +1228,9 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         For z = 1 To gZList.Count
             zi = gZList(z)
             KLabelZ ws, r, "　" & CStr(zi(1)) & "　" & CStr(zi(0))
-            ws.Cells(r, SC_MK_SCRAP).Value = ZKubun(CStr(zi(1)), CStr(zi(0)))
-            ws.Cells(r, SC_MK_SCRAP).Interior.Color = CLR_INPUT
-            ws.Cells(r, SC_MK_SCRAP).HorizontalAlignment = xlCenter
+            ws.Cells(r, SC_ZKUBUN).Value = ZKubun(CStr(zi(1)), CStr(zi(0)))
+            ws.Cells(r, SC_ZKUBUN).Interior.Color = CLR_INPUT
+            ws.Cells(r, SC_ZKUBUN).HorizontalAlignment = xlCenter
             For i = 0 To 6
                 ws.Cells(r, CLng(cols(i))).Formula = ZRangeSum(CLng(zi(2)), CLng(zi(3)), CLng(cols(i)))
             Next i
@@ -1290,7 +1261,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rIKEI = r:    KLabel ws, r, "⑳一般管理費【合計】（端数整理後）　※⑰－⑲":           r = r + 1
     rZKAK = r:    KLabel ws, r, "⑳'工事価格に加算するZ項目　※区分「価」の合計":          r = r + 1
     rKAKAKU = r:  KLabel ws, r, "㉑工事価格　※⑬＋⑳＋⑳'":                               r = r + 1
-    rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」の項目＋明細のスクラップ〇":   r = r + 1
+    rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」のZコード項目の合計":              r = r + 1
     gRowKakaku2 = r: KLabel ws, r, "㉑'工事価格（スクラップ込み）　※㉑＋㉒":             r = r + 1
     gRowZei = r:     KLabel ws, r, "㉓消費税相当額　※(㉑＋㉒)×消費税率":                r = r + 1
     gRowKoujihi = r: KLabel ws, r, "㉔工事費　※㉑＋㉒＋㉓":                              r = r + 1
@@ -1301,22 +1272,19 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
 
         ' ①直接工事費（明細行のみ。スクラップ〇は㉒へまわす）
         ws.Cells(rDCHOKU, c).Formula = "=SUMPRODUCT((" & KR(SC_TANKA_O, gDirectFirst, gDirectLast) & _
-            "<>"""")*(" & KR(SC_MK_SCRAP, gDirectFirst, gDirectLast) & "<>""〇"")*(" & _
-            KR(c, gDirectFirst, gDirectLast) & "))"
+            "<>"""")*(" & KR(c, gDirectFirst, gDirectLast) & "))"
 
         ws.Cells(rKANZAI, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_KANZA, gDirectFirst, gDirectLast) & _
-            "=""〇"")*(" & KR(SC_MK_SCRAP, gDirectFirst, gDirectLast) & "<>""〇"")*(" & _
-            KR(c, gDirectFirst, gDirectLast) & "))"
+            "=""〇"")*(" & KR(c, gDirectFirst, gDirectLast) & "))"
 
         ws.Cells(rSHOBUN, c).Formula = "=SUMPRODUCT((" & KR(SC_TANKA_O, gDirectFirst, gDirectLast) & _
-            "<>"""")*(" & KR(SC_MK_SCRAP, gDirectFirst, gDirectLast) & "<>""〇"")*(" & _
-            KR(CLng(shoCols(i)), gDirectFirst, gDirectLast) & "))"
+            "<>"""")*(" & KR(CLng(shoCols(i)), gDirectFirst, gDirectLast) & "))"
 
         ws.Cells(rTAIGAI, c).Formula = "=MAX(0," & KC(rSHOBUN, c) & "-ROUNDDOWN((" & _
             KC(rDCHOKU, c) & "-" & KC(rKANZAI, c) & "/2)*" & kojo & ",0))"
 
         ' ④積上分 計 ＝ 区分「積」のZ項目の合計
-        ws.Cells(rTSUMI, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
+        ws.Cells(rTSUMI, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""積"")*(" & KR(c, zRow1, zRow2) & "))"
 
         If CLng(rateSrc(i)) < 0 Then
@@ -1337,7 +1305,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
                                         "-" & KC(rKANZAI, c) & "/2"
         KRate ws, rGRITSU, c, CLng(rateSrc(i)), cols, RateGenba(KC(rGTAISHO, c))
         ws.Cells(rGKEI, c).Formula = "=ROUNDDOWN(" & KC(rGTAISHO, c) & "*" & KC(rGRITSU, c) & ",-3)"
-        ws.Cells(rZGEN, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
+        ws.Cells(rZGEN, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""原"")*(" & KR(c, zRow1, zRow2) & "))"
         ws.Cells(rGENKA, c).Formula = "=" & KC(rJUN, c) & "+" & KC(rGKEI, c) & "+" & KC(rZGEN, c)
 
@@ -1347,19 +1315,16 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ws.Cells(rHOSHO, c).Value = CDbl(CfgVal(cfg, "契約保証費", 0))
         ws.Cells(rHOSHO, c).Interior.Color = CLR_INPUT
         ws.Cells(rIKEI0, c).Formula = "=" & KC(rIBUN, c) & "+" & KC(rHOSHO, c)
-        ws.Cells(rZKAK, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
+        ws.Cells(rZKAK, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""価"")*(" & KR(c, zRow1, zRow2) & "))"
         ws.Cells(rKAKAKU0, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI0, c) & "+" & KC(rZKAK, c)
         ws.Cells(rHASU, c).Formula = "=" & KC(rKAKAKU0, c) & "-ROUNDDOWN(" & KC(rKAKAKU0, c) & ",-3)"
         ws.Cells(rIKEI, c).Formula = "=" & KC(rIKEI0, c) & "-" & KC(rHASU, c)
         ws.Cells(rKAKAKU, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI, c) & "+" & KC(rZKAK, c)
 
-        ' ㉒スクラップ ＝ 区分「ス」のZ項目 ＋ 直接工事費部のスクラップ〇明細
-        ws.Cells(rSCRAP, c).Formula = "=SUMPRODUCT((" & KR(SC_MK_SCRAP, zRow1, zRow2) & _
-            "=""ス"")*(" & KR(c, zRow1, zRow2) & "))+SUMPRODUCT((" & _
-            KR(SC_TANKA_O, gDirectFirst, gDirectLast) & "<>"""")*(" & _
-            KR(SC_MK_SCRAP, gDirectFirst, gDirectLast) & "=""〇"")*(" & _
-            KR(c, gDirectFirst, gDirectLast) & "))"
+        ' ㉒スクラップ ＝ 区分「ス」のZ項目
+        ws.Cells(rSCRAP, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
+            "=""ス"")*(" & KR(c, zRow1, zRow2) & "))"
 
         ws.Cells(gRowKakaku2, c).Formula = "=" & KC(rKAKAKU, c) & "+" & KC(rSCRAP, c)
         ws.Cells(gRowZei, c).Formula = "=(" & KC(rKAKAKU, c) & "+" & KC(rSCRAP, c) & ")*" & zei
@@ -1398,7 +1363,7 @@ End Function
 '--------------------------------------------------------------
 Private Sub KLabel(ByVal ws As Worksheet, ByVal r As Long, ByVal s As String)
     ws.Cells(r, SC_HIMOKU).Value = s
-    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_MK_SCRAP))
+    With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .HorizontalAlignment = xlLeft
         .Borders.LineStyle = xlContinuous
@@ -1413,7 +1378,7 @@ Private Sub KLabelZ(ByVal ws As Worksheet, ByVal r As Long, ByVal s As String)
         .HorizontalAlignment = xlLeft
         .Borders.LineStyle = xlContinuous
     End With
-    ws.Cells(r, SC_MK_SCRAP).Borders.LineStyle = xlContinuous
+    ws.Cells(r, SC_ZKUBUN).Borders.LineStyle = xlContinuous
 End Sub
 
 
@@ -1556,9 +1521,9 @@ Private Sub FinishDetail(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Range(ws.Cells(FIRST_ROW, SC_SP_O), ws.Cells(lastRow, SC_SN_DONE)).NumberFormatLocal = "#,##0"
 
     ws.Range(ws.Cells(FIRST_ROW, SC_Q_DONE), ws.Cells(lastRow, SC_Q_DONE)).Interior.Color = CLR_INPUT
-    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SCRAP)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SHIN)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(FIRST_ROW, SC_SP_O), ws.Cells(lastRow, SC_SP_N)).Interior.Color = CLR_INPUT
-    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_MK_SCRAP)).HorizontalAlignment = xlCenter
+    ws.Range(ws.Cells(FIRST_ROW, SC_MK_SHOBU), ws.Cells(lastRow, SC_ZKUBUN)).HorizontalAlignment = xlCenter
 
     For r = FIRST_ROW To lastRow
         If ws.Cells(r, SC_HIMOKU).Value <> "" Then
@@ -1575,7 +1540,7 @@ Private Sub FinishDetail(ByVal ws As Worksheet, ByVal lastRow As Long)
         End If
         ' 階層行には手入力欄を出さない
         If ws.Cells(r, SC_TANKA_O).Value = "" Then
-            ws.Range(ws.Cells(r, SC_MK_SHOBU), ws.Cells(r, SC_MK_SCRAP)).Interior.ColorIndex = xlColorIndexNone
+            ws.Range(ws.Cells(r, SC_MK_SHOBU), ws.Cells(r, SC_MK_SHIN)).Interior.ColorIndex = xlColorIndexNone
             ws.Range(ws.Cells(r, SC_Q_DONE), ws.Cells(r, SC_Q_DONE)).Interior.ColorIndex = xlColorIndexNone
             ws.Range(ws.Cells(r, SC_SP_O), ws.Cells(r, SC_SP_N)).Interior.ColorIndex = xlColorIndexNone
         End If
@@ -1595,7 +1560,7 @@ Public Sub FinishSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Columns(SC_KIKAKU).ColumnWidth = 22
     ws.Range(ws.Columns(SC_TANKA_O), ws.Columns(SC_Q_REST)).ColumnWidth = 10
     ws.Columns(SC_TANI).ColumnWidth = 6
-    ws.Range(ws.Columns(SC_MK_SHOBU), ws.Columns(SC_MK_SCRAP)).ColumnWidth = 6
+    ws.Range(ws.Columns(SC_MK_SHOBU), ws.Columns(SC_ZKUBUN)).ColumnWidth = 6
     ws.Range(ws.Columns(SC_A_ALL), ws.Columns(SC_N_DONE)).ColumnWidth = 13
     ws.Columns(SC_TEKIYO).ColumnWidth = 24
     ws.Range(ws.Columns(SC_SP_O), ws.Columns(SC_SN_DONE)).ColumnWidth = 11
@@ -1628,10 +1593,12 @@ Public Sub BuildChosho(ByVal cfg As Object)
     Dim contract As Double
     Dim fKoujihi As String, fKakaku As String, fDekidaka As String
     Dim fZanNew As String, fZei As String, fShinNuki As String, fShinNukiD As String
+    Dim zeiRate As String
 
     Set sl = ThisWorkbook.Worksheets(SH_SLIDE)
     Set ws = FreshSheet(SH_CHOSHO)
     contract = CDbl(CfgVal(cfg, "請負代金額", 0))
+    zeiRate = Format$(CDbl(CfgVal(cfg, "消費税率", 0.1)), "0.##########")
 
     ' スライド計算表へのリンク（S=前全体 T=前出来形 V=後全体 W=後残工事 X=新抜き全体 Y=新抜き出来形）
     fKoujihi = SlideRef(sl, gRowKoujihi, SC_A_ALL)
@@ -1660,12 +1627,8 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("B8").Value = "設計額（税込）"
     ws.Range("C8").Formula = "=" & fKoujihi
     ws.Range("H8").Value = "請負率(%)"
-    If contract > 0 Then
-        ws.Range("I8").Formula = "=" & Format$(contract, "0.##########") & "/C8*100"
-    Else
-        ws.Range("I8").Value = 100
-    End If
-    ws.Range("I8").Interior.Color = CLR_INPUT
+    ws.Range("I8").Formula = "=IF(C8=0,0,C14/C8*100)"
+    ws.Range("I8").Font.Color = RGB(120, 120, 120)
 
     ws.Range("C9").Value = "②": ws.Range("D9").Value = "⑤"
     ws.Range("E9").Value = "⑦=②-⑤": ws.Range("F9").Value = "⑧"
@@ -1680,7 +1643,10 @@ Public Sub BuildChosho(ByVal cfg As Object)
 
     ws.Range("C13").Value = "③"
     ws.Range("B14").Value = "請負代金額（税込）"
-    ws.Range("C14").Formula = "=ROUNDDOWN(C8*I8/100,0)"
+    ws.Range("C14").Value = contract
+    ws.Range("C14").Interior.Color = CLR_INPUT
+    ws.Range("H14").Value = "★手入力"
+    ws.Range("H14").Font.Color = RGB(192, 0, 0)
 
     ws.Range("B15").Value = "　請負工事価格"
     ws.Range("C15").Value = "④"
@@ -1690,7 +1656,7 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("G15").Formula = "=IF(E16>F16,""S'=P2'-P1'+（P1''×1/100）"",""S'=P2'-P1'-（P1''×1/100）"")"
 
     ws.Range("B16").Value = "　（請負代金額（税抜））"
-    ws.Range("C16").Formula = "=ROUNDDOWN(C14*10/11,0)"
+    ws.Range("C16").Formula = "=ROUNDDOWN(C14/(1+" & zeiRate & "),0)"
     ws.Range("D16").Formula = "=ROUNDDOWN(D10*C14/C8,0)"
     ws.Range("E16").Formula = "=C16-D16"
     ws.Range("F16").Formula = "=ROUNDDOWN(F10*C14/C8,0)"
@@ -1709,9 +1675,11 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("D20").Formula = "=ROUNDDOWN(" & fShinNukiD & "*C14/C8,0)"
     ws.Range("E20").Formula = "=C20-D20"
 
-    ws.Range("B22").Value = "※ P1''（新工種を抜いた請負ベースの残工事）が受注者負担1%の母数です"
-    ws.Range("B23").Value = "※ 金額はすべて「スライド計算表」の経費計算部からリンクしています"
-    ws.Range("B22:B23").Font.Color = RGB(120, 120, 120)
+    ws.Range("B22").Value = "※ 黄色いセル（請負代金額（税込））だけ手入力です。" & _
+                            "請負率・請負工事価格（税抜）・消費税相当額は計算で出ます"
+    ws.Range("B23").Value = "※ P1''（新工種を抜いた請負ベースの残工事）が受注者負担1%の母数です"
+    ws.Range("B24").Value = "※ 金額はすべて「スライド計算表」の経費計算部からリンクしています"
+    ws.Range("B22:B24").Font.Color = RGB(120, 120, 120)
 
     '--- 体裁 ---
     ws.Range("C5:C6").Merge
@@ -1791,7 +1759,7 @@ Public Sub テスト用CSV作成()
     If SheetExists(SH_CONFIG) Then
         SetConfigValue "旧単価CSVパス", pOld
         SetConfigValue "新単価CSVパス", pNew
-        SetConfigValue "工事名", "○○地内　道路改良工事（テスト）"
+        SetConfigValue "工事名", "○○地内　配水管布設工事（テスト）"
         SetConfigValue "工事場所", "神戸市○○区○○町地内"
         SetConfigValue "工期（自）", "令和7年4月1日"
         SetConfigValue "工期（至）", "令和8年3月20日"
@@ -1799,6 +1767,7 @@ Public Sub テスト用CSV作成()
         SetConfigValue "基準日", "令和7年10月1日"
         SetConfigValue "発注者", "神戸市"
         SetConfigValue "受注者", "株式会社○○建設"
+        SetConfigValue "契約保証費", 77899
     End If
 
     MsgBox "サンプルCSVを作成しました。" & vbCrLf & vbCrLf & _
@@ -1824,103 +1793,118 @@ End Sub
 
 
 '--------------------------------------------------------------
-' サンプル（エスティマ「スライド用csv出力」形式・12列・見出しなし）
-'   isNew = False … 当初の単価適用日
-'   isNew = True  … 基準日の単価適用日（労務比率の高い工種ほど上昇）
+' サンプル本体
+'   isNew = False … 当初の単価適用日／True … 基準日の単価適用日
 '--------------------------------------------------------------
 Private Function SampleCsv(ByVal isNew As Boolean) As String
     mSb = ""
 
-    Head "G0100", "○○地内　道路改良工事"
-    Head "X1000", "本工事費"
+    ' 1行目はヘッダ行（積算システムが付ける制御行）
+    mSb = "A1,8.69E+12,1,71001,80901,0,0,0,0,0,0,0,0" & vbCrLf
 
-    Head "Y10001", "道路改良"
-    Head "Y20001", "土工"
-    Head "Y30001", "掘削工"
-    Head "Y40001", "機械掘削"
-    Det "床掘り", "m3", "土砂", "オープンカット", "", 1250, IIf(isNew, 336, 320)
-    Head "Y40002", "埋戻工"
-    Det "埋戻し", "m3", "流用土", "人力併用", "", 880, IIf(isNew, 452, 410)
-    Det "土材料", "m3", "再生クラッシャラン0~40", "", "裏込め部", 40, IIf(isNew, 1800, 1800)
-    Head "Y40003", "残土処理工"
-    Det "土砂等運搬", "m3", "DT10t", "L=5km", "片道9.5km", 620, IIf(isNew, 1613, 1583)
-    Det "残土等処分", "m3", "布施畑環境センター", "", "", 620, IIf(isNew, 3272, 3272)
+    '--- 単価表部（Gコードの代価表。内訳には入らない）---
+    Lv "G0001", "／再掘削工", "式", "殻運搬処理　処分費含む", ""
+    Det "舗装版破砕工", "㎡", "", "", 93, 93, IIf(isNew, 1420, 1350)
+    Det "床掘", "", "", "", 150, 150, IIf(isNew, 336, 320)
+    Lv "G0003", "／交通誘導警備員", "式", "", ""
+    Det "交通誘導警備員B", "人日", "", "", 1152, 1152, IIf(isNew, 12080, 11870)
+    Lv "G1005", "／仮設資材運搬", "式", "積込み取卸し含む", "往復分"
+    Det "仮設材等の運搬", "t", "(鋼矢板､H形鋼等)", "往路", 2, 2, IIf(isNew, 5820, 5480)
+    Lv "G1002", "／通水試験費", "式", "器具損料・諸雑費含む", ""
+    Det "通水試験工", "日", "", "", 1, 1, IIf(isNew, 86400, 82300)
+    Lv "G0007", "／スクラップ", "式", "撤去管・残管等", "；故銑A"
+    Det "スクラップ", "ｔ", "故銑A", "", -7.9, -7.9, IIf(isNew, 23500, 9500)
 
-    Head "Y30002", "擁壁工"
-    Head "Y40011", "場所打擁壁工"
-    Det "コンクリート", "m3", "24-12-25(20)(高炉)", "", "躯体", 145, IIf(isNew, 35690, 35400)
-    Det "型枠", "m2", "一般型枠", "", "", 980, IIf(isNew, 8308, 8101)
-    Det "鉄筋工", "t", "SD345", "D16～D25", "", 12.4, IIf(isNew, 135500, 117500)
+    '--- 内訳部 ---
+    Lv "X1000", "本工事費", "", "", ""
 
-    Head "Y20002", "舗装工"
-    Head "Y30011", "路盤工"
-    Head "Y40021", "下層路盤"
-    Det "下層路盤", "m2", "クラッシャラン", "t=200", "", 3100, IIf(isNew, 1420, 1350)
-    Head "Y40022", "上層路盤"
-    Det "上層路盤", "m2", "粒度調整砕石", "t=150", "", 3100, IIf(isNew, 1680, 1590)
-    Head "Y30012", "表層工"
-    Head "Y40031", "表層"
-    Det "表層", "m2", "密粒度AS", "t=50", "", 3100, IIf(isNew, 2240, 2080)
+    Lv "Y2301", "管路(開削)", "", "", ""
+    Lv "Y230101", "材料", "式", "", ""
+    Lv "Y23010101", "管材料", "", "", ""
+    Lv "Y2301010102", "GX形管", "", "", ""
+    Det "ＧＸ形直管", "本", "継手材含む", "", 114, 114, IIf(isNew, 35690, 35400)
+    Det "ＧＸ形直管", "本", "継手材含む", "", 30, 0, IIf(isNew, 35690, 35400)
+    Lv "Y23010103", "ポリエチレン管", "", "", ""
+    Lv "Y2301010301", "配水用ﾎﾟﾘｴﾁﾚﾝ管", "", "", ""
+    Det "ＰＥ形 ＥＦ受口付直管", "本", "配水用", "", 500, 0, IIf(isNew, 8308, 8101)
 
-    ' 直接工事費の中の仮設工（YZコードを使う。ここで諸経費部に切り替わってはいけない）
-    Head "Y10003", "仮設工"
-    Head "YZ1001", "土留工"
-    Det "鋼矢板打込・引抜", "m2", "Ⅲ型", "L=6.0m", "", 480, IIf(isNew, 5820, 5480)
-    Det "鋼矢板賃料", "m2月", "Ⅲ型", "", "", 2880, IIf(isNew, 268, 268)
+    Lv "Y230102", "管布設工", "式", "", ""
+    Lv "Y23010201", "管路土工", "", "", ""
+    Lv "Y2301020101", "舗装版切断", "", "", ""
+    Det "舗装版切断", "m", "", "", 5260, 5260, IIf(isNew, 1613, 1583)
+    Lv "Y2301020110", "管路掘削", "", "", ""
+    Det "床掘", "", "試掘", "", 1000, 80, IIf(isNew, 336, 320)
+    Det "土砂等運搬", "m3", "現場～仮置場L=4.2km", "", 2000, 3010, IIf(isNew, 1180, 1150)
+    Lv "Y2301020112", "再掘削", "", "", ""
+    DetG "G0001", "／再掘削工", "式", "殻運搬処理　処分費含む", 1, 1, IIf(isNew, 452000, 410000)
 
-    Head "Y10002", "交通管理"
-    Head "Y20011", "交通管理工"
-    Head "Y30021", "交通誘導警備員"
-    Det "交通誘導警備員B", "人日", "", "", "", 352, IIf(isNew, 12080, 11870)
+    Lv "Y230104", "管工", "式", "", ""
+    Lv "Y23010401", "管据付・撤去工", "", "", ""
+    Lv "Y2301040101", "管据付", "", "", ""
+    Det "鋳鉄管据付", "ｍ", "", "", 638.1, 638.1, IIf(isNew, 5820, 5430)
 
-    ' 諸経費（共通仮設費の積上げ分）
-    Head "Z0001", "運搬費"
-    Head "YZ0001", "重機分解組立輸送"
-    Det "重機分解組立輸送", "回", "分解組立+輸送(往復)", "", "", 1, IIf(isNew, 831400, 828600)
-    Head "Z0010", "準備費"
-    Head "YZ0011", "木根等処分費"
-    Det "高木伐採・根株撤去", "本", "幹周90cm～110cm", "", "集材含む", 2, IIf(isNew, 77750, 75485)
-    Det "生木処分費", "t", "枝葉", "", "", 5.09, IIf(isNew, 16000, 16000)
-    Head "Z0020", "技術管理費"
-    Head "YZ0021", "土質試験費"
-    Det "土の一軸圧縮試験", "試料", "", "", "2供試体/試料", 3, IIf(isNew, 10400, 10400)
+    Lv "Y230107", "付帯工", "式", "", ""
+    Lv "Y23010701", "舗装撤去工", "", "", ""
+    Lv "Y2301070101", "舗装版切断", "", "", ""
+    Det "舗装版切断", "m", "", "", 650, 650, IIf(isNew, 1613, 1583)
+    Lv "Y23010702", "道路復旧工", "", "", ""
+    Lv "Y2301070201", "舗装復旧", "", "", ""
+    Det "舗装復旧工", "㎡", "", "", 3120, 3120, IIf(isNew, 2240, 2080)
 
-    ' Z0040以降は積算システム側の計算行。共通仮設費の積上分に混ぜてはいけない
-    Head "Z0040", "共通仮設費率分"
-    Det "共通仮設費率分", "式", "率計上", "", "", 1, IIf(isNew, 3620000, 3500000)
-    Head "Z0045", "一般管理費等"
-    Det "一般管理費等", "式", "率計上", "", "", 1, IIf(isNew, 5120000, 4820000)
+    Lv "Y230108", "仮設工", "式", "", ""
+    Lv "Y23010803", "交通管理工", "", "", ""
+    DetG "G0003", "／交通誘導警備員", "式", "", 1, 1, IIf(isNew, 13916160, 13674240)
 
-    ' スクラップ（数量がマイナス。㉒として工事価格の後に足す）
-    Head "Z0047", "スクラップ"
-    Head "YZ0048", "ｽｸﾗｯﾌﾟ"
-    Det "ｽｸﾗｯﾌﾟ", "t", "", "", "", -1.93, IIf(isNew, 23500, 9500)
+    '--- 諸経費部 ---
+    Lv "Z0001", "運搬費", "式", "", ""
+    Lv "YZ000000003", "仮設材運搬費", "式", "", ""
+    DetG "G1005", "／仮設資材運搬", "式", "積込み取卸し含む", 1, 1, IIf(isNew, 23280, 21920)
+    Lv "Z0002", "準備費", "式", "", ""
+    Lv "Z0006", "技術管理費", "式", "", ""
+    DetG "G1002", "／通水試験費", "式", "器具損料・諸雑費含む", 1, 1, IIf(isNew, 86400, 82300)
+    Lv "Z0013", "支給品費", "式", "", ""
+    Lv "Z0040", "工期延長等に伴う増加費用", "式", "", ""
+    Lv "Z0045", "設計委託費", "式", "", ""
+    Lv "Z0047", "スクラップ", "式", "", ""
+    DetG "G0007", "／スクラップ", "式", "撤去管・残管等", 1, 1, IIf(isNew, -185650, -75050)
 
     SampleCsv = mSb
 End Function
 
 
-' 階層行（コードあり・単価/数量なし）
-Private Sub Head(ByVal code As String, ByVal nm As String)
-    Row12 code, nm, "式", "", "", "", 0, 0
+' 階層行・見出し行（数量なし）
+Private Sub Lv(ByVal code As String, ByVal nm As String, ByVal tani As String, _
+               ByVal k1 As String, ByVal k2 As String)
+    Row13 code, nm, tani, k1, k2, "", 0, 0, 0
 End Sub
 
 
 ' 明細行（コードなし）
 Private Sub Det(ByVal nm As String, ByVal tani As String, ByVal k1 As String, _
-                ByVal k2 As String, ByVal tekiyo As String, _
-                ByVal suryo As Double, ByVal tanka As Double)
-    Row12 "", nm, tani, k1, k2, tekiyo, suryo, tanka
+                ByVal k2 As String, ByVal qNew As Double, ByVal qOrg As Double, _
+                ByVal tanka As Double)
+    Row13 "", nm, tani, k1, k2, "", qNew, qOrg, tanka
 End Sub
 
 
-Private Sub Row12(ByVal code As String, ByVal nm As String, ByVal tani As String, _
+' 明細行（Gコードの代価を引く行）
+Private Sub DetG(ByVal code As String, ByVal nm As String, ByVal tani As String, _
+                 ByVal k1 As String, ByVal qNew As Double, ByVal qOrg As Double, _
+                 ByVal tanka As Double)
+    Row13 code, nm, tani, k1, "", "", qNew, qOrg, tanka
+End Sub
+
+
+' 13列。①＝変更設計、②＝当初設計
+Private Sub Row13(ByVal code As String, ByVal nm As String, ByVal tani As String, _
                   ByVal k1 As String, ByVal k2 As String, ByVal tekiyo As String, _
-                  ByVal suryo As Double, ByVal tanka As Double)
+                  ByVal qNew As Double, ByVal qOrg As Double, ByVal tanka As Double)
     mSb = mSb & Q(code) & "," & Q(nm) & "," & Q(tani) & "," & Q(k1) & "," & Q(k2) & "," & Q(tekiyo) & _
-          "," & Format$(tanka, "0") & ",0," & _
-          Format$(suryo, "0.00") & ",0," & _
-          Format$(suryo * tanka, "0") & ",0" & vbCrLf
+          "," & IIf(tanka = 0, "", Format$(tanka, "0")) & "," & IIf(tanka = 0, "", Format$(tanka, "0")) & _
+          "," & IIf(qNew = 0 And qOrg = 0, "", Format$(qNew, "0.##")) & _
+          "," & IIf(qNew = 0 And qOrg = 0, "", Format$(qOrg, "0.##")) & _
+          "," & IIf(tanka = 0, "", Format$(qNew * tanka, "0")) & _
+          "," & IIf(tanka = 0, "", Format$(qOrg * tanka, "0")) & "," & vbCrLf
 End Sub
 
 

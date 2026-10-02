@@ -127,14 +127,13 @@ End Sub
 
 '==============================================================
 ' エスティマCSVの読み込み
-'   usedLabel に採用した系列（"当初" / "変更"）を返す
+'   ①列＝変更設計、②列＝当初設計。usedLabel に採用した側を返す
 '==============================================================
 Private Function LoadEstima(ByVal filePath As String, ByVal cfg As Object, _
                             ByRef usedLabel As String) As Collection
     Dim rows As Collection, recs As Collection
     Dim arr() As String
-    Dim i As Long, rx1000 As Long
-    Dim firstIsToshu As Boolean
+    Dim i As Long
     Dim useFirst As Boolean
     Dim seriesName As String
     Dim rec As Variant
@@ -150,35 +149,14 @@ Private Function LoadEstima(ByVal filePath As String, ByVal cfg As Object, _
         Exit Function
     End If
 
-    '--- X1000（本工事費）の位置を探す ---
-    rx1000 = 0
-    For i = 1 To rows.Count
-        arr = rows(i)
-        If InStr(1, ColVal(arr, CSV_CODE), "X1000", vbTextCompare) > 0 Then
-            rx1000 = i
-            Exit For
-        End If
-    Next i
-
-    '--- ①が当初か変更かを判定（X1000の次の行の設計金額②が0なら ①＝当初）---
-    firstIsToshu = True
-    If rx1000 > 0 And rx1000 < rows.Count Then
-        arr = rows(rx1000 + 1)
-        If ToNum(ColVal(arr, CSV_KIN2)) <> 0 Then firstIsToshu = False
-    End If
-
-    '--- 使用する系列を決める ---
-    seriesName = CStr(CfgVal(cfg, "使用系列", "自動"))
-    Select Case seriesName
-        Case "当初": useFirst = firstIsToshu
-        Case "変更": useFirst = Not firstIsToshu
-        Case Else:   useFirst = True        ' 自動＝①（常に最新側）
-    End Select
-
-    If useFirst Then
-        usedLabel = IIf(firstIsToshu, "当初", "変更")
+    '--- ①＝変更、②＝当初（積算システムの出力仕様）---
+    seriesName = NormText(CStr(CfgVal(cfg, "使用系列", "変更")))
+    If seriesName = NormText("当初") Then
+        useFirst = False
+        usedLabel = "当初"
     Else
-        usedLabel = IIf(firstIsToshu, "変更", "当初")
+        useFirst = True
+        usedLabel = "変更"
     End If
 
     '--- 明細を組み立てる ---
