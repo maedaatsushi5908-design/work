@@ -16,6 +16,8 @@
 '
 ' CSVの前提：①列＝変更設計、②列＝当初設計
 '
+' 金額は 単価×数量 を1円未満切り捨て（ROUNDDOWN）で計算します。
+'
 ' そのほかのマクロ
 '   ・CSV構造チェック … CSVのコードと名称だけを書き出す（金額は出しません）
 '   ・テスト用CSV作成 … 動作確認用のサンプルCSVを2本作る
@@ -1072,12 +1074,13 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     aAll = ws.Cells(r, SC_A_ALL).Address(False, False)
     aBall = ws.Cells(r, SC_B_ALL).Address(False, False)
 
+    ' 金額は 単価×数量 を1円未満切り捨て
     ws.Cells(r, SC_Q_REST).Formula = "=" & aK & "-" & aL
-    ws.Cells(r, SC_A_ALL).Formula = "=" & aK & "*" & aI
-    ws.Cells(r, SC_A_DONE).Formula = "=" & aL & "*" & aI
-    ws.Cells(r, SC_A_REST).Formula = "=" & aM & "*" & aI
-    ws.Cells(r, SC_B_ALL).Formula = "=" & aK & "*" & aJ
-    ws.Cells(r, SC_B_REST).Formula = "=" & aM & "*" & aJ
+    ws.Cells(r, SC_A_ALL).Formula = "=ROUNDDOWN(" & aK & "*" & aI & ",0)"
+    ws.Cells(r, SC_A_DONE).Formula = "=ROUNDDOWN(" & aL & "*" & aI & ",0)"
+    ws.Cells(r, SC_A_REST).Formula = "=ROUNDDOWN(" & aM & "*" & aI & ",0)"
+    ws.Cells(r, SC_B_ALL).Formula = "=ROUNDDOWN(" & aK & "*" & aJ & ",0)"
+    ws.Cells(r, SC_B_REST).Formula = "=ROUNDDOWN(" & aM & "*" & aJ & ",0)"
     ' 新工種抜き：新工種〇の行を0にする
     ws.Cells(r, SC_N_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & aAll & ")"
     ws.Cells(r, SC_N_DONE).Formula = "=IF(" & aQ & "=""〇"",0," & _
@@ -1088,14 +1091,15 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     shO = "IF(" & aSO & "=""""," & aAll & "," & aSO & ")"
     shN = "IF(" & aSN & "="""",IF(" & aSO & "=""""," & aBall & "," & aSO & ")," & aSN & ")"
 
-    ws.Cells(r, SC_SA_ALL).Formula = "=IF(" & aO & "<>""〇"",0," & shO & ")"
-    ws.Cells(r, SC_SA_DONE).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0," & _
-        shO & "*" & aL & "/" & aK & "))"
-    ws.Cells(r, SC_SA_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0," & _
-        shO & "*" & aM & "/" & aK & "))"
-    ws.Cells(r, SC_SB_ALL).Formula = "=IF(" & aO & "<>""〇"",0," & shN & ")"
-    ws.Cells(r, SC_SB_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0," & _
-        shN & "*" & aM & "/" & aK & "))"
+    ' 処分費額も数量比で割り振ったあと1円未満切り捨て
+    ws.Cells(r, SC_SA_ALL).Formula = "=IF(" & aO & "<>""〇"",0,ROUNDDOWN(" & shO & ",0))"
+    ws.Cells(r, SC_SA_DONE).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0,ROUNDDOWN(" & _
+        shO & "*" & aL & "/" & aK & ",0)))"
+    ws.Cells(r, SC_SA_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0,ROUNDDOWN(" & _
+        shO & "*" & aM & "/" & aK & ",0)))"
+    ws.Cells(r, SC_SB_ALL).Formula = "=IF(" & aO & "<>""〇"",0,ROUNDDOWN(" & shN & ",0))"
+    ws.Cells(r, SC_SB_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0,ROUNDDOWN(" & _
+        shN & "*" & aM & "/" & aK & ",0)))"
     ws.Cells(r, SC_SN_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & _
         ws.Cells(r, SC_SA_ALL).Address(False, False) & ")"
     ws.Cells(r, SC_SN_DONE).Formula = "=IF(" & aQ & "=""〇"",0," & _
