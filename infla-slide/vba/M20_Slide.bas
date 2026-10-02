@@ -641,12 +641,12 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
 
     rDCHOKU = r:  KLabel ws, r, "①直接工事費":                                          r = r + 1
     rKANZAI = r:  KLabel ws, r, "①'水道工事における管材費":                             r = r + 1
-    rSHOBUN = r:  KLabel ws, r, "②直接工事費内の処分費等":                              r = r + 1
+    rSHOBUN = r:  KLabel ws, r, "②直接工事費内の処分費等　※スクラップは含みません（㉒へ）": r = r + 1
     rTAIGAI = r:  KLabel ws, r, "③②のうち率計算の対象外費　※②－(①－①'/2)×3%":       r = r + 1
 
     '--- Zコード項目を1行ずつ出す（区分は自動判定。R列で直せます）---
     ws.Cells(r, SC_HIMOKU).Value = "─ 諸経費部のZコード項目　※R列の区分は手直しできます　" & _
-        "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／ス＝スクラップ(㉒)／空欄＝使わない ─"
+        "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／ス＝スクラップ(㉒・売却益なのでマイナス)／空欄＝使わない ─"
     With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .Font.Color = RGB(120, 120, 120)
@@ -691,7 +691,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rIKEI = r:    KLabel ws, r, "⑳一般管理費【合計】（端数整理後）　※⑰－⑲":           r = r + 1
     rZKAK = r:    KLabel ws, r, "⑳'工事価格に加算するZ項目　※区分「価」の合計":          r = r + 1
     rKAKAKU = r:  KLabel ws, r, "㉑工事価格　※⑬＋⑳＋⑳'":                               r = r + 1
-    rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」のZコード項目の合計":              r = r + 1
+    rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」のZコード項目の合計（1000円単位に切捨）。売却益なのでマイナス": r = r + 1
     gRowKakaku2 = r: KLabel ws, r, "㉑'工事価格（スクラップ込み）　※㉑＋㉒":             r = r + 1
     gRowZei = r:     KLabel ws, r, "㉓消費税相当額　※(㉑＋㉒)×消費税率":                r = r + 1
     gRowKoujihi = r: KLabel ws, r, "㉔工事費　※㉑＋㉒＋㉓":                              r = r + 1
@@ -752,9 +752,9 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ws.Cells(rIKEI, c).Formula = "=" & KC(rIKEI0, c) & "-" & KC(rHASU, c)
         ws.Cells(rKAKAKU, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI, c) & "+" & KC(rZKAK, c)
 
-        ' ㉒スクラップ ＝ 区分「ス」のZ項目
-        ws.Cells(rSCRAP, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
-            "=""ス"")*(" & KR(c, zRow1, zRow2) & "))"
+        ' ㉒スクラップ ＝ 区分「ス」のZ項目。売却益なのでマイナスで入り、1000円単位に切り捨てる
+        ws.Cells(rSCRAP, c).Formula = "=ROUNDDOWN(SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
+            "=""ス"")*(" & KR(c, zRow1, zRow2) & ")),-3)"
 
         ws.Cells(gRowKakaku2, c).Formula = "=" & KC(rKAKAKU, c) & "+" & KC(rSCRAP, c)
         ws.Cells(gRowZei, c).Formula = "=(" & KC(rKAKAKU, c) & "+" & KC(rSCRAP, c) & ")*" & zei
