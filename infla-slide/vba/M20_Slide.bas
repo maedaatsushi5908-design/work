@@ -74,6 +74,9 @@ Private mKCfg As Object
 ' 新工種を自動判定するか
 Private mAutoShin As Boolean
 
+' 新工種を考慮するか（しないとき新工種の列・系列を出さない）
+Public gUseShin As Boolean
+
 
 '==============================================================
 ' 設定シート
@@ -113,8 +116,10 @@ Public Sub 設定シート作成()
     PutItem ws, r, "文字コード", "Shift_JIS", "UTF-8の場合は UTF-8 と入力":              r = r + 1
     PutItem ws, r, "区切り文字", ",":                                                   r = r + 1
     PutItem ws, r, "使用系列", "変更", "変更／当初。CSVの①列＝変更設計、②列＝当初設計":      r = r + 1
+    PutItem ws, r, "新工種を考慮する", "する", _
+            "する／しない。しないにすると新工種の列・系列を出さず、受注者負担1%の母数は残工事そのものになります": r = r + 1
     PutItem ws, r, "新工種の自動判定", "する", _
-            "する／しない。採用しなかった側の数量が0で、採用側に数量がある明細にQ列の〇を付けます": r = r + 2
+            "する／しない。採用しなかった側の数量が0で、採用側に数量がある明細にQ列の〇を付けます（考慮する場合のみ）": r = r + 2
 
     PutHead ws, r, "【経費計算の設定】":                                                r = r + 1
     PutItem ws, r, "契約保証費", 0, "当初設計時の額で固定":                             r = r + 1
@@ -191,7 +196,8 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
     Set ws = FreshSheet(SH_SLIDE)
     Set gZList = New Collection
-    mAutoShin = (NormText(CStr(CfgVal(cfg, "新工種の自動判定", "する"))) = "する")
+    gUseShin = (NormText(CStr(CfgVal(cfg, "新工種を考慮する", "する"))) = "する")
+    mAutoShin = gUseShin And (NormText(CStr(CfgVal(cfg, "新工種の自動判定", "する"))) = "する")
     WriteHeader ws, cfg
 
     ReDim rowArr(1 To n)
@@ -390,7 +396,7 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(3, SC_MK_SHOBU).Value = "区分（〇を入力）"
     ws.Cells(5, SC_MK_SHOBU).Value = "処分費"
     ws.Cells(5, SC_MK_KANZA).Value = "管材費"
-    ws.Cells(5, SC_MK_SHIN).Value = "新工種"
+    If gUseShin Then ws.Cells(5, SC_MK_SHIN).Value = "新工種"
     ws.Cells(3, SC_ZKUBUN).Value = "区分"
     ws.Cells(5, SC_ZKUBUN).Value = "経費計算部用"
     ws.Cells(3, SC_A_ALL).Value = "スライド前（旧単価）"
@@ -400,9 +406,11 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(3, SC_B_ALL).Value = "スライド後（新単価）"
     ws.Cells(5, SC_B_ALL).Value = "全体"
     ws.Cells(5, SC_B_REST).Value = "残工事"
-    ws.Cells(3, SC_N_ALL).Value = "新工種抜き"
-    ws.Cells(5, SC_N_ALL).Value = "全体"
-    ws.Cells(5, SC_N_DONE).Value = "出来形"
+    If gUseShin Then
+        ws.Cells(3, SC_N_ALL).Value = "新工種抜き"
+        ws.Cells(5, SC_N_ALL).Value = "全体"
+        ws.Cells(5, SC_N_DONE).Value = "出来形"
+    End If
     ws.Cells(3, SC_TEKIYO).Value = "摘要"
     ws.Cells(3, SC_SHA_O).Value = "処分費額（手入力・全数量分）"
     ws.Cells(5, SC_SHA_O).Value = "スライド前"
@@ -413,8 +421,10 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(5, SC_SA_REST).Value = "前・残工事"
     ws.Cells(5, SC_SB_ALL).Value = "後・全体"
     ws.Cells(5, SC_SB_REST).Value = "後・残工事"
-    ws.Cells(5, SC_SN_ALL).Value = "新抜き・全体"
-    ws.Cells(5, SC_SN_DONE).Value = "新抜き・出来形"
+    If gUseShin Then
+        ws.Cells(5, SC_SN_ALL).Value = "新抜き・全体"
+        ws.Cells(5, SC_SN_DONE).Value = "新抜き・出来形"
+    End If
 
     With ws.Range(ws.Cells(3, 1), ws.Cells(6, SC_LAST))
         .Font.Bold = True
@@ -424,7 +434,7 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
         .Interior.Color = CLR_HEAD
         .Borders.LineStyle = xlContinuous
     End With
-    ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, SC_MK_SHIN)).Interior.Color = CLR_INPUT
+    ws.Range(ws.Cells(3, SC_MK_SHOBU), ws.Cells(6, IIf(gUseShin, SC_MK_SHIN, SC_MK_KANZA))).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(3, SC_ZKUBUN), ws.Cells(6, SC_ZKUBUN)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(3, SC_SHA_O), ws.Cells(6, SC_SHA_N)).Interior.Color = CLR_INPUT
     ws.Range(ws.Cells(6, 1), ws.Cells(6, SC_LAST)).Borders(xlEdgeBottom).LineStyle = xlDouble
@@ -510,9 +520,11 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     ws.Cells(r, SC_B_ALL).Formula = "=ROUNDDOWN(" & aK & "*" & aJ & ",0)"
     ws.Cells(r, SC_B_REST).Formula = "=ROUNDDOWN(" & aM & "*" & aJ & ",0)"
     ' 新工種抜き：新工種〇の行を0にする
-    ws.Cells(r, SC_N_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & aAll & ")"
-    ws.Cells(r, SC_N_DONE).Formula = "=IF(" & aQ & "=""〇"",0," & _
-        ws.Cells(r, SC_A_DONE).Address(False, False) & ")"
+    If gUseShin Then
+        ws.Cells(r, SC_N_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & aAll & ")"
+        ws.Cells(r, SC_N_DONE).Formula = "=IF(" & aQ & "=""〇"",0," & _
+            ws.Cells(r, SC_A_DONE).Address(False, False) & ")"
+    End If
 
     ' 処分費額：全数量に対する金額を手入力し、出来形・残工事へは数量比で割り振る
     ' 未入力ならその行の金額を全額 処分費とみなす
@@ -528,10 +540,12 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     ws.Cells(r, SC_SB_ALL).Formula = "=IF(" & aO & "<>""〇"",0,ROUNDDOWN(" & shN & ",0))"
     ws.Cells(r, SC_SB_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0,ROUNDDOWN(" & _
         shN & "*" & aM & "/" & aK & ",0)))"
-    ws.Cells(r, SC_SN_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & _
-        ws.Cells(r, SC_SA_ALL).Address(False, False) & ")"
-    ws.Cells(r, SC_SN_DONE).Formula = "=IF(" & aQ & "=""〇"",0," & _
-        ws.Cells(r, SC_SA_DONE).Address(False, False) & ")"
+    If gUseShin Then
+        ws.Cells(r, SC_SN_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & _
+            ws.Cells(r, SC_SA_ALL).Address(False, False) & ")"
+        ws.Cells(r, SC_SN_DONE).Formula = "=IF(" & aQ & "=""〇"",0," & _
+            ws.Cells(r, SC_SA_DONE).Address(False, False) & ")"
+    End If
 End Sub
 
 
@@ -567,7 +581,11 @@ Public Sub WriteSumFormulas(ByVal ws As Worksheet, ByRef rowArr() As Long, _
         End If
     Next i
 
-    cols = Array(SC_A_ALL, SC_A_DONE, SC_A_REST, SC_B_ALL, SC_B_REST, SC_N_ALL, SC_N_DONE)
+    If gUseShin Then
+        cols = Array(SC_A_ALL, SC_A_DONE, SC_A_REST, SC_B_ALL, SC_B_REST, SC_N_ALL, SC_N_DONE)
+    Else
+        cols = Array(SC_A_ALL, SC_A_DONE, SC_A_REST, SC_B_ALL, SC_B_REST)
+    End If
 
     For i = 1 To cnt
         If lvlArr(i) < 9 Then
@@ -629,10 +647,16 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     Set mKWs = ws
     Set mKCfg = cfg
 
-    cols = Array(SC_A_ALL, SC_A_DONE, SC_A_REST, SC_B_ALL, SC_B_REST, SC_N_ALL, SC_N_DONE)
-    shoCols = Array(SC_SA_ALL, SC_SA_DONE, SC_SA_REST, SC_SB_ALL, SC_SB_REST, SC_SN_ALL, SC_SN_DONE)
-    ' 0＝自前の率（手入力可）／-1＝率なし（素材のみ）／1以上＝その系列番号の率を参照
-    rateSrc = Array(0, 1, -1, 0, 4, 0, 6)
+    If gUseShin Then
+        cols = Array(SC_A_ALL, SC_A_DONE, SC_A_REST, SC_B_ALL, SC_B_REST, SC_N_ALL, SC_N_DONE)
+        shoCols = Array(SC_SA_ALL, SC_SA_DONE, SC_SA_REST, SC_SB_ALL, SC_SB_REST, SC_SN_ALL, SC_SN_DONE)
+        ' 0＝自前の率（手入力可）／-1＝率なし（素材のみ）／1以上＝その系列番号の率を参照
+        rateSrc = Array(0, 1, -1, 0, 4, 0, 6)
+    Else
+        cols = Array(SC_A_ALL, SC_A_DONE, SC_A_REST, SC_B_ALL, SC_B_REST)
+        shoCols = Array(SC_SA_ALL, SC_SA_DONE, SC_SA_REST, SC_SB_ALL, SC_SB_REST)
+        rateSrc = Array(0, 1, -1, 0, 4)
+    End If
 
     kojo = NumStr(CfgVal(cfg, "処分費控除率", 0.03))
     zei = NumStr(CfgVal(cfg, "消費税率", 0.1))
@@ -669,7 +693,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
             ws.Cells(r, SC_ZKUBUN).Value = ZKubun(CStr(zi(1)), CStr(zi(0)))
             ws.Cells(r, SC_ZKUBUN).Interior.Color = CLR_INPUT
             ws.Cells(r, SC_ZKUBUN).HorizontalAlignment = xlCenter
-            For i = 0 To 6
+            For i = 0 To UBound(cols)
                 ws.Cells(r, CLng(cols(i))).Formula = ZRangeSum(CLng(zi(2)), CLng(zi(3)), CLng(cols(i)))
             Next i
             r = r + 1
@@ -705,7 +729,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     gRowKoujihi = r: KLabel ws, r, "㉔工事費　※㉑＋㉒＋㉓":                              r = r + 1
 
     '--- 系列ごとに数式を入れる ---
-    For i = 0 To 6
+    For i = 0 To UBound(cols)
         c = CLng(cols(i))
 
         ' ①直接工事費（明細行のみ。スクラップ〇は㉒へまわす）
@@ -772,13 +796,13 @@ NextSeries:
     Next i
 
     '--- 体裁 ---
-    With ws.Range(ws.Cells(startRow + 1, SC_A_ALL), ws.Cells(gRowKoujihi, SC_N_DONE))
+    With ws.Range(ws.Cells(startRow + 1, SC_A_ALL), ws.Cells(gRowKoujihi, CLng(cols(UBound(cols)))))
         .NumberFormatLocal = "#,##0"
         .Borders.LineStyle = xlContinuous
     End With
-    ws.Range(ws.Cells(rKRITSU, SC_A_ALL), ws.Cells(rKRITSU, SC_N_DONE)).NumberFormatLocal = "0.0000"
-    ws.Range(ws.Cells(rGRITSU, SC_A_ALL), ws.Cells(rGRITSU, SC_N_DONE)).NumberFormatLocal = "0.0000"
-    ws.Range(ws.Cells(rIRITSU, SC_A_ALL), ws.Cells(rIRITSU, SC_N_DONE)).NumberFormatLocal = "0.0000"
+    ws.Range(ws.Cells(rKRITSU, SC_A_ALL), ws.Cells(rKRITSU, CLng(cols(UBound(cols))))).NumberFormatLocal = "0.0000"
+    ws.Range(ws.Cells(rGRITSU, SC_A_ALL), ws.Cells(rGRITSU, CLng(cols(UBound(cols))))).NumberFormatLocal = "0.0000"
+    ws.Range(ws.Cells(rIRITSU, SC_A_ALL), ws.Cells(rIRITSU, CLng(cols(UBound(cols))))).NumberFormatLocal = "0.0000"
     KHiLite ws, rTSUMI
     KHiLite ws, rJUN
     KHiLite ws, rGENKA
@@ -832,7 +856,7 @@ End Sub
 
 
 Private Sub KHiLite(ByVal ws As Worksheet, ByVal r As Long)
-    With ws.Range(ws.Cells(r, SC_A_ALL), ws.Cells(r, SC_N_DONE))
+    With ws.Range(ws.Cells(r, SC_A_ALL), ws.Cells(r, IIf(gUseShin, SC_N_DONE, SC_B_REST)))
         .Font.Bold = True
         .Interior.Color = CLR_TOTAL
     End With
@@ -1002,6 +1026,13 @@ Public Sub FinishSheet(ByVal ws As Worksheet, ByVal lastRow As Long)
     ws.Range(ws.Columns(SC_A_ALL), ws.Columns(SC_N_DONE)).ColumnWidth = 13
     ws.Columns(SC_TEKIYO).ColumnWidth = 24
     ws.Range(ws.Columns(SC_SHA_O), ws.Columns(SC_SN_DONE)).ColumnWidth = 11
+
+    ' 新工種を考慮しないときは、使わない列を隠す
+    If Not gUseShin Then
+        ws.Columns(SC_MK_SHIN).Hidden = True
+        ws.Range(ws.Columns(SC_N_ALL), ws.Columns(SC_N_DONE)).Hidden = True
+        ws.Range(ws.Columns(SC_SN_ALL), ws.Columns(SC_SN_DONE)).Hidden = True
+    End If
 
     With ws.PageSetup
         .Orientation = xlLandscape

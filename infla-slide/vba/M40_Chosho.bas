@@ -29,8 +29,10 @@ Public Sub BuildChosho(ByVal cfg As Object)
     fDekidaka = SlideRef(sl, gRowKakaku2, SC_A_DONE)
     fZanNew = SlideRef(sl, gRowKakaku2, SC_B_REST)
     fZei = SlideRef(sl, gRowZei, SC_A_ALL)
-    fShinNuki = SlideRef(sl, gRowKakaku2, SC_N_ALL)
-    fShinNukiD = SlideRef(sl, gRowKakaku2, SC_N_DONE)
+    If gUseShin Then
+        fShinNuki = SlideRef(sl, gRowKakaku2, SC_N_ALL)
+        fShinNukiD = SlideRef(sl, gRowKakaku2, SC_N_DONE)
+    End If
 
     ws.Range("G2").Value = "様式4-2号"
     ws.Range("B3").Value = "スライド調書"
@@ -89,18 +91,30 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("B18").Value = "　消費税相当額"
     ws.Range("C18").Formula = "=C14-C16"
 
-    ws.Range("B19").Value = "　請負工事価格" & vbLf & "（新工種抜き）"
-    ws.Range("C19").Value = "⑨" & vbLf & "（請負率考慮）"
-    ws.Range("D19").Value = "⑩" & vbLf & "（請負率考慮）"
-    ws.Range("E19").Value = "P1''=⑨-⑩"
-    ws.Range("B20").Value = "　（請負代金額（税抜））"
-    ws.Range("C20").Formula = "=ROUNDDOWN(" & fShinNuki & "*C14/C8,0)"
-    ws.Range("D20").Formula = "=ROUNDDOWN(" & fShinNukiD & "*C14/C8,0)"
-    ws.Range("E20").Formula = "=C20-D20"
+    If gUseShin Then
+        ws.Range("B19").Value = "　請負工事価格" & vbLf & "（新工種抜き）"
+        ws.Range("C19").Value = "⑨" & vbLf & "（請負率考慮）"
+        ws.Range("D19").Value = "⑩" & vbLf & "（請負率考慮）"
+        ws.Range("E19").Value = "P1''=⑨-⑩"
+        ws.Range("B20").Value = "　（請負代金額（税抜））"
+        ws.Range("C20").Formula = "=ROUNDDOWN(" & fShinNuki & "*C14/C8,0)"
+        ws.Range("D20").Formula = "=ROUNDDOWN(" & fShinNukiD & "*C14/C8,0)"
+        ws.Range("E20").Formula = "=C20-D20"
+    Else
+        ws.Range("B19").Value = "　（新工種を考慮しない設定）"
+        ws.Range("E19").Value = "P1''=P1'"
+        ws.Range("B20").Value = "　1%の母数"
+        ws.Range("E20").Formula = "=E16"
+        ws.Range("B19:B20").Font.Color = RGB(120, 120, 120)
+    End If
 
     ws.Range("B22").Value = "※ 黄色いセル（請負代金額（税込））だけ手入力です。" & _
                             "請負率・請負工事価格（税抜）・消費税相当額は計算で出ます"
-    ws.Range("B23").Value = "※ P1''（新工種を抜いた請負ベースの残工事）が受注者負担1%の母数です"
+    If gUseShin Then
+        ws.Range("B23").Value = "※ P1''（新工種を抜いた請負ベースの残工事）が受注者負担1%の母数です"
+    Else
+        ws.Range("B23").Value = "※ 新工種を考慮しない設定です。受注者負担1%の母数は P1'（請負ベースの残工事）です"
+    End If
     ws.Range("B24").Value = "※ 金額はすべて「スライド計算表」の経費計算部からリンクしています"
     ws.Range("B22:B24").Font.Color = RGB(120, 120, 120)
 
