@@ -170,6 +170,14 @@ Public Sub スライド計算表作成()
         Exit Sub
     End If
 
+    ' 古い設定シートに足りない項目を補ってから読む
+    If 設定シート更新() > 0 Then
+        MsgBox "「" & SH_CONFIG & "」シートに、このバージョンで増えた設定を追加しました。" & vbCrLf & _
+               "赤字の項目を確認してから、もう一度実行してください。", vbInformation
+        ThisWorkbook.Worksheets(SH_CONFIG).Activate
+        Exit Sub
+    End If
+
     Set cfg = GetConfig()
 
     pathOld = AskCsvPath(CStr(CfgVal(cfg, "旧単価CSVパス", "")), _
@@ -690,7 +698,7 @@ Public Sub 設定シート作成()
     PutItem ws, r, "文字コード", "Shift_JIS", "UTF-8の場合は UTF-8 と入力":              r = r + 1
     PutItem ws, r, "区切り文字", ",":                                                   r = r + 1
     PutItem ws, r, "使用系列", "変更", "変更／当初。CSVの①列＝変更設計、②列＝当初設計":      r = r + 1
-    PutItem ws, r, "新工種を考慮する", "する", _
+    PutItem ws, r, "新工種を考慮する", DefaultUseShin(), _
             "する／しない。しないにすると新工種の列・系列を出さず、受注者負担1%の母数は残工事そのものになります": r = r + 1
     PutItem ws, r, "新工種の自動判定", "する", _
             "する／しない。採用しなかった側の数量が0で、採用側に数量がある明細にQ列の〇を付けます（考慮する場合のみ）": r = r + 2
@@ -750,6 +758,55 @@ End Sub
 '==============================================================
 ' スライド計算表を作る
 '==============================================================
+' 古いバージョンで作った設定シートに、後から増えた項目を補う
+'   既にある項目は触りません。入力済みの値は消えません。
+Public Function 設定シート更新() As Long
+    Dim ws As Worksheet, cfg As Object
+    Dim r As Long, added As Long
+
+    If Not SheetExists(SH_CONFIG) Then Exit Function
+
+    Set ws = ThisWorkbook.Worksheets(SH_CONFIG)
+    Set cfg = GetConfig()
+    r = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+
+    added = added + AddIfMissing(ws, cfg, r, "新工種を考慮する", DefaultUseShin(), _
+        "する／しない。しないにすると新工種の列・系列を出しません")
+    added = added + AddIfMissing(ws, cfg, r, "新工種の自動判定", "する", _
+        "する／しない。当初数量0・変更数量ありの明細にQ列の〇を付けます")
+    added = added + AddIfMissing(ws, cfg, r, "使用系列", "変更", _
+        "変更／当初。CSVの①列＝変更設計、②列＝当初設計")
+    added = added + AddIfMissing(ws, cfg, r, "契約保証費", 0, "当初設計時の額で固定")
+    added = added + AddIfMissing(ws, cfg, r, "処分費控除率", 0.03, "")
+    added = added + AddIfMissing(ws, cfg, r, "消費税率", 0.1, "")
+    added = added + AddIfMissing(ws, cfg, r, "共通仮設費率A", 485.4, "")
+    added = added + AddIfMissing(ws, cfg, r, "共通仮設費率B", -0.2231, "")
+    added = added + AddIfMissing(ws, cfg, r, "共通仮設費 地域補正", 1.5, "")
+    added = added + AddIfMissing(ws, cfg, r, "共通仮設費 週休補正", 1.01, "")
+    added = added + AddIfMissing(ws, cfg, r, "現場管理費率A", 202.3, "")
+    added = added + AddIfMissing(ws, cfg, r, "現場管理費率B", -0.1034, "")
+    added = added + AddIfMissing(ws, cfg, r, "現場管理費 地域補正", 1.2, "")
+    added = added + AddIfMissing(ws, cfg, r, "現場管理費 週休補正", 1.02, "")
+    added = added + AddIfMissing(ws, cfg, r, "一般管理費率係数", -4.97802, "")
+    added = added + AddIfMissing(ws, cfg, r, "一般管理費率定数", 56.92101, "")
+
+    設定シート更新 = added
+End Function
+
+
+Private Function AddIfMissing(ByVal ws As Worksheet, ByVal cfg As Object, ByRef r As Long, _
+                              ByVal label As String, ByVal defaultValue As Variant, _
+                              ByVal note As String) As Long
+    If cfg.Exists(NormText(label)) Then Exit Function
+
+    r = r + 1
+    If ws.Cells(r, 1).Value <> "" Then r = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
+    PutItem ws, r, label, defaultValue, IIf(note = "", "（このバージョンで追加された設定）", note)
+    ws.Cells(r, 1).Font.Color = RGB(192, 0, 0)
+    AddIfMissing = 1
+End Function
+
+
 Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection, _
                                 ByVal recNew As Collection) As String
     Dim ws As Worksheet
@@ -770,7 +827,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
     Set ws = FreshSheet(SH_SLIDE)
     Set gZList = New Collection
-    gUseShin = (NormText(CStr(CfgVal(cfg, "新工種を考慮する", "する"))) = "する")
+    gUseShin = (NormText(CStr(CfgVal(cfg, "新工種を考慮する", DefaultUseShin()))) = "する")
     mAutoShin = gUseShin And (NormText(CStr(CfgVal(cfg, "新工種の自動判定", "する"))) = "する")
     WriteHeader ws, cfg
 
@@ -929,6 +986,14 @@ Public Function IsScrapName(ByVal s As String) As Boolean
 End Function
 
 
+' 新工種を考慮するかの既定値
+'   ※「新工種なし版」ではここが "しない" になっています。
+'     設定シートに項目が無いときもこの値が使われます。
+Public Function DefaultUseShin() As String
+    DefaultUseShin = "する"
+End Function
+
+
 Public Function LevelNum(ByVal lvl As String) As Long
     Select Case lvl
         Case "費目": LevelNum = 0
@@ -951,6 +1016,9 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Range("B1").Font.Size = 14
     ws.Range("B1").Font.Bold = True
     ws.Range("G1").Value = "基準日：" & CStr(CfgVal(cfg, "基準日", ""))
+    ws.Range("K1").Value = "新工種：" & IIf(gUseShin, "考慮する", "考慮しない")
+    ws.Range("K1").Font.Bold = True
+    ws.Range("K1").Font.Color = IIf(gUseShin, RGB(0, 0, 0), RGB(192, 0, 0))
 
     ws.Cells(3, SC_CODE).Value = "コード"
     ws.Cells(3, SC_HIMOKU).Value = "費目"
@@ -1660,6 +1728,9 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("B3").Font.Bold = True
     ws.Range("E3").Formula = "=IF(E16>F16,""減額スライド"",IF(E16<F16,""増額スライド"",""""))"
     ws.Range("B4").Value = CfgVal(cfg, "工事名", "")
+    ws.Range("G4").Value = "新工種：" & IIf(gUseShin, "考慮する", "考慮しない")
+    ws.Range("G4").Font.Bold = True
+    ws.Range("G4").Font.Color = IIf(gUseShin, RGB(0, 0, 0), RGB(192, 0, 0))
 
     ws.Range("C5").Value = "元設計"
     ws.Range("D5").Value = "出来高"

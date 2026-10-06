@@ -40,6 +40,9 @@ Public Sub BuildChosho(ByVal cfg As Object)
     ws.Range("B3").Font.Bold = True
     ws.Range("E3").Formula = "=IF(E16>F16,""減額スライド"",IF(E16<F16,""増額スライド"",""""))"
     ws.Range("B4").Value = CfgVal(cfg, "工事名", "")
+    ws.Range("G4").Value = "新工種：" & IIf(gUseShin, "考慮する", "考慮しない")
+    ws.Range("G4").Font.Bold = True
+    ws.Range("G4").Font.Color = IIf(gUseShin, RGB(0, 0, 0), RGB(192, 0, 0))
 
     ws.Range("C5").Value = "元設計"
     ws.Range("D5").Value = "出来高"

@@ -63,6 +63,14 @@ Public Sub スライド計算表作成()
         Exit Sub
     End If
 
+    ' 古い設定シートに足りない項目を補ってから読む
+    If 設定シート更新() > 0 Then
+        MsgBox "「" & SH_CONFIG & "」シートに、このバージョンで増えた設定を追加しました。" & vbCrLf & _
+               "赤字の項目を確認してから、もう一度実行してください。", vbInformation
+        ThisWorkbook.Worksheets(SH_CONFIG).Activate
+        Exit Sub
+    End If
+
     Set cfg = GetConfig()
 
     pathOld = AskCsvPath(CStr(CfgVal(cfg, "旧単価CSVパス", "")), _

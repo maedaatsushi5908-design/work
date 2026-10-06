@@ -12,8 +12,7 @@ def build(outfile, useShin):
     for fn, desc in MODS:
         lines = io.open(fn, encoding='utf-8').read().split('\n')
         if not useShin:
-            lines = [l.replace('PutItem ws, r, "新工種を考慮する", "する"',
-                               'PutItem ws, r, "新工種を考慮する", "しない"') for l in lines]
+            lines = [l.replace('DefaultUseShin = "する"', 'DefaultUseShin = "しない"') for l in lines]
         cut = next(i for i,l in enumerate(lines) if PROC.match(l))
         while cut > 0 and (lines[cut-1].strip().startswith("'") or lines[cut-1].strip()==''): cut -= 1
         head = [l for l in lines[:cut] if l.strip() != 'Option Explicit']
