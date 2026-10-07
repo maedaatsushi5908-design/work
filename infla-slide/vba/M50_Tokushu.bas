@@ -65,7 +65,7 @@ Public Sub 特殊集計区分CSV構造チェック()
 
     Set lay = TkDetect(rows, TkSpecOf(cfg), 0)
     maxC = CLng(lay("列数"))
-    kcol = TkCol(lay, "区分")
+    kcol = TkKubunCol(lay)
     head0 = CLng(lay("見出し行"))
     carry = CBool(lay("区分は見出し行"))
 
@@ -161,19 +161,20 @@ End Sub
 '==============================================================
 Public Sub 特殊集計区分CSV取込()
     Dim ws As Worksheet, rs As Worksheet
-    Dim cfg As Object, lay As Object, map As Object
-    Dim rows As Collection, q As Collection, rest As Collection
+    Dim cfg As Object, lay As Object, map As Object, agg As Object
+    Dim rows As Collection, q As Collection, rest As Collection, aggKeys As Collection
     Dim arr() As String, e As Variant
     Dim v As Variant, kAny As Variant
     Dim i As Long, r As Long, rr As Long, lastRow As Long
     Dim maxC As Long, kcol As Long, head0 As Long
     Dim charSetName As String
     Dim wSho As String, wKan As String
-    Dim useKin As Boolean, doClear As Boolean
-    Dim carry As Boolean, isLabel As Boolean
-    Dim curKubun As String, kubun As String
-    Dim kind As String, k As String, nm As String
-    Dim nSho As Long, nKan As Long, nKin As Long, nSkip As Long, warnQ As Long
+    Dim useKin As Boolean, doClear As Boolean, parentMode As Boolean
+    Dim carry As Boolean
+    Dim kind As String, k As String, nm As String, note As String, cd As String
+    Dim qv As Double
+    Dim nSho As Long, nKan As Long, nKin As Long, nSkip As Long
+    Dim warnQ As Long, warnKin As Long, nLeft As Long
     Dim ans As VbMsgBoxResult
 
     On Error GoTo ErrHandler
@@ -227,9 +228,10 @@ Public Sub 特殊集計区分CSV取込()
 
     Set lay = TkDetect(rows, TkSpecOf(cfg), TkKinDefault(cfg))
     maxC = CLng(lay("列数"))
-    kcol = TkCol(lay, "区分")
+    kcol = TkKubunCol(lay)
     head0 = CLng(lay("見出し行"))
     carry = CBool(lay("区分は見出し行"))
+    parentMode = TkIsParentMode(lay)
 
     If kcol = 0 Or TkCol(lay, "名称") = 0 Then
         Application.ScreenUpdating = True
@@ -242,10 +244,316 @@ Public Sub 特殊集計区分CSV取込()
         Exit Sub
     End If
 
-    '--- CSVを突合キーごとの待ち行列にする ---
+    '--- CSVを突合できる形にまとめる ---
+    Set map = Nothing
+    Set agg = Nothing
+    Set aggKeys = New Collection
+    If parentMode Then
+        Set agg = TkBuildParent(rows, lay, head0, maxC, carry, wSho, wKan, aggKeys)
+    Else
+        Set map = TkBuildByKey(rows, lay, head0, maxC, carry, wSho, wKan)
+    End If
+
+    '--- 結果シート ---
+    Set rs = FreshSheet(SH_TK_RESULT)
+    rs.Range("A1").Value = "特殊集計区分CSV 取込結果"
+    rs.Range("A1").Font.Bold = True
+    rs.Range("A2").Value = "ファイル：" & Mid$(CStr(v), InStrRev(CStr(v), Application.PathSeparator) + 1)
+    rs.Range("A3").Value = "読み取った並び：" & Replace(TkLayText(lay), vbCrLf, "　")
+    rs.Range("A5").Value = "CSV行"
+    rs.Range("B5").Value = "特殊集計区分"
+    rs.Range("C5").Value = "判定"
+    rs.Range("D5").Value = IIf(parentMode, "突合コード", "コード")
+    rs.Range("E5").Value = IIf(parentMode, "処分費等の名称", "名称")
+    rs.Range("F5").Value = IIf(parentMode, "計算表の名称", "規格")
+    rs.Range("G5").Value = IIf(parentMode, "件数", "単位")
+    rs.Range("H5").Value = "CSVの数量"
+    rs.Range("I5").Value = "CSVの金額"
+    rs.Range("J5").Value = "計算表の行"
+    rs.Range("K5").Value = "結果"
+    With rs.Range("A5:K5")
+        .Font.Bold = True
+        .Interior.Color = CLR_HEAD
+        .Borders.LineStyle = xlContinuous
+    End With
+    rr = 5
+
+    '--- 計算表の明細行を上から見ていく ---
+    lastRow = ws.Cells(ws.Rows.Count, SC_CODE).End(xlUp).Row
+    If lastRow < FIRST_ROW Then lastRow = FIRST_ROW
+
+    If doClear Then
+        For r = FIRST_ROW To lastRow
+            If TkIsDetail(ws, r) Then
+                ws.Cells(r, SC_MK_SHOBU).ClearContents
+                ws.Cells(r, SC_MK_KANZA).ClearContents
+                ws.Cells(r, SC_SHA_O).ClearContents
+            End If
+        Next r
+    End If
+
+    For r = FIRST_ROW To lastRow
+        If TkIsDetail(ws, r) Then
+            k = ""
+            note = ""
+
+            If parentMode Then
+                '--- 代価表／親施工単価のコードで突合する ---
+                cd = NormText(CStr(ws.Cells(r, SC_CODE).Value))
+                qv = 0
+                If IsNumeric(ws.Cells(r, SC_Q_ALL).Value) Then qv = CDbl(ws.Cells(r, SC_Q_ALL).Value)
+                If cd <> "" Then k = TkFindGroup(agg, aggKeys, cd, qv, note)
+                If k <> "" Then
+                    e = agg(k)
+                    e(8) = True
+                    agg(k) = e
+                End If
+            Else
+                '--- コード｜名称｜規格｜単位で突合する ---
+                k = TkKey(CStr(ws.Cells(r, SC_CODE).Value), CStr(ws.Cells(r, SC_NAME).Value), _
+                          CStr(ws.Cells(r, SC_KIKAKU).Value), CStr(ws.Cells(r, SC_TANI).Value))
+                If map.Exists(k) Then
+                    Set q = map(k)
+                    If q.Count > 0 Then
+                        e = q(1)
+                        q.Remove 1
+                    Else
+                        k = ""
+                    End If
+                Else
+                    k = ""
+                End If
+            End If
+
+            If k <> "" Then
+                rr = rr + 1
+                rs.Cells(rr, 1).Value = e(2)
+                rs.Cells(rr, 2).Value = e(3)
+                rs.Cells(rr, 3).Value = TkKindName(CStr(e(0)))
+                rs.Cells(rr, 4).Value = "'" & CStr(e(4))
+                rs.Cells(rr, 5).Value = e(5)
+                If parentMode Then
+                    rs.Cells(rr, 6).Value = ws.Cells(r, SC_NAME).Value
+                    rs.Cells(rr, 7).Value = e(9)
+                Else
+                    rs.Cells(rr, 6).Value = e(6)
+                    rs.Cells(rr, 7).Value = e(7)
+                End If
+                If e(10) <> "" Then rs.Cells(rr, 8).Value = CDbl(e(10))
+                If CDbl(e(1)) <> 0 Then rs.Cells(rr, 9).Value = CDbl(e(1))
+                rs.Cells(rr, 10).Value = r
+                rs.Range(rs.Cells(rr, 1), rs.Cells(rr, 11)).Borders.LineStyle = xlContinuous
+
+                If CStr(e(0)) = "処分" Then
+                    If IsScrapName(CStr(e(5))) Or IsScrapName(CStr(ws.Cells(r, SC_NAME).Value)) Then
+                        rs.Cells(rr, 11).Value = "スクラップなので処分費にしませんでした"
+                        rs.Cells(rr, 11).Font.Color = RGB(192, 0, 0)
+                        nSkip = nSkip + 1
+                    Else
+                        ws.Cells(r, SC_MK_SHOBU).Value = "〇"
+                        nSho = nSho + 1
+                        If useKin And CDbl(e(1)) <> 0 Then
+                            ws.Cells(r, SC_SHA_O).Value = CDbl(e(1))
+                            nKin = nKin + 1
+                            rs.Cells(rr, 11).Value = "O列に〇／AA列に金額を入れました" & note
+                        Else
+                            rs.Cells(rr, 11).Value = "O列に〇を入れました。" & _
+                                "★CSVに金額が無いので、AA列に処分費の額を手で入れてください" & note
+                            rs.Cells(rr, 11).Font.Color = RGB(192, 0, 0)
+                            rs.Cells(rr, 9).Interior.Color = CLR_INPUT
+                            warnKin = warnKin + 1
+                        End If
+                        If note <> "" Then
+                            rs.Cells(rr, 8).Interior.Color = CLR_INPUT
+                            warnQ = warnQ + 1
+                        End If
+                    End If
+                ElseIf CStr(e(0)) = "管材" Then
+                    ws.Cells(r, SC_MK_KANZA).Value = "〇"
+                    nKan = nKan + 1
+                    rs.Cells(rr, 11).Value = "P列に〇を入れました" & note
+                End If
+            End If
+        End If
+    Next r
+
+    '--- 使われなかったCSV行 ---
+    Set rest = New Collection
+    If parentMode Then
+        For i = 1 To aggKeys.Count
+            e = agg(CStr(aggKeys(i)))
+            If Not CBool(e(8)) Then rest.Add e
+        Next i
+    Else
+        For Each kAny In map.Keys
+            Set q = map(CStr(kAny))
+            For i = 1 To q.Count
+                rest.Add q(i)
+            Next i
+        Next kAny
+    End If
+    nLeft = rest.Count
+
+    If nLeft > 0 Then
+        rr = rr + 2
+        rs.Cells(rr, 1).Value = "▼ 計算表に突合先が見つからなかったCSV行（" & nLeft & "件）" & _
+            "　…　手でO列・P列に〇とAA列の金額を入れてください"
+        rs.Cells(rr, 1).Font.Bold = True
+        rs.Cells(rr, 1).Font.Color = RGB(192, 0, 0)
+        For i = 1 To nLeft
+            e = rest(i)
+            rr = rr + 1
+            rs.Cells(rr, 1).Value = e(2)
+            rs.Cells(rr, 2).Value = e(3)
+            rs.Cells(rr, 3).Value = TkKindName(CStr(e(0)))
+            rs.Cells(rr, 4).Value = "'" & CStr(e(4))
+            rs.Cells(rr, 5).Value = e(5)
+            rs.Cells(rr, 6).Value = e(6)
+            rs.Cells(rr, 7).Value = IIf(parentMode, e(9), e(7))
+            If e(10) <> "" Then rs.Cells(rr, 8).Value = CDbl(e(10))
+            If CDbl(e(1)) <> 0 Then rs.Cells(rr, 9).Value = CDbl(e(1))
+            rs.Cells(rr, 11).Value = "突合先が見つかりませんでした"
+            rs.Cells(rr, 11).Font.Color = RGB(192, 0, 0)
+            rs.Range(rs.Cells(rr, 1), rs.Cells(rr, 11)).Borders.LineStyle = xlContinuous
+        Next i
+    End If
+
+    rs.Columns("A").ColumnWidth = 7
+    rs.Columns("B").ColumnWidth = 18
+    rs.Columns("C").ColumnWidth = 8
+    rs.Columns("D").ColumnWidth = 12
+    rs.Columns("E").ColumnWidth = 26
+    rs.Columns("F").ColumnWidth = 26
+    rs.Columns("G").ColumnWidth = 6
+    rs.Columns("H").ColumnWidth = 11
+    rs.Columns("I").ColumnWidth = 13
+    rs.Columns("J").ColumnWidth = 10
+    rs.Columns("K").ColumnWidth = 46
+    rs.Columns("I").NumberFormat = "#,##0"
+
+    Application.ScreenUpdating = True
+    ws.Activate
+
+    MsgBox "特殊集計区分CSVを取り込みました。" & vbCrLf & _
+           "突合のしかた：" & IIf(parentMode, "代価表・親施工単価のコード", "コード＋名称＋規格＋単位") & vbCrLf & vbCrLf & _
+           "処分費〇（O列）　：" & nSho & " 行" & vbCrLf & _
+           "　うち金額もAA列へ：" & nKin & " 行" & vbCrLf & _
+           IIf(warnKin > 0, "　★金額が無かった　：" & warnKin & " 行（AA列を手入力してください）" & vbCrLf, "") & _
+           "管材費〇（P列）　：" & nKan & " 行" & vbCrLf & _
+           "スクラップで除外　：" & nSkip & " 行" & vbCrLf & _
+           "突合できなかった　：" & nLeft & " 件" & vbCrLf & _
+           IIf(warnQ > 0, "数量が合わない行　：" & warnQ & " 行" & vbCrLf, "") & vbCrLf & _
+           "内容は「" & SH_TK_RESULT & "」シートで確認できます。" & vbCrLf & _
+           IIf(nLeft > 0 Or warnQ > 0 Or warnKin > 0, _
+               "赤字・黄色の行は手で直してください。", "すべて取り込めました。"), vbInformation
+    Exit Sub
+
+ErrHandler:
+    Application.ScreenUpdating = True
+    MsgBox "エラーが発生しました。" & vbCrLf & vbCrLf & _
+           "内容：" & Err.Description & "（" & Err.Number & "）", vbCritical
+End Sub
+
+
+'==============================================================
+' 内部処理
+'==============================================================
+
+' CSVを「代価表／親施工単価のコード」ごとにまとめる
+'   一覧表は代価表の中の基礎単価（処分費そのもの）を並べているので、
+'   内訳の行は 代価表等コード番号（あれば）／親施工単価コード番号 でたどる。
+'   同じ内訳の行に当たる行が複数あれば金額を合算する。
+'   配列：0 判定／1 金額／2 CSV行／3 区分名／4 突合コード／5 名称／
+'         6 規格／7 単位／8 使ったか／9 件数／10 数量（文字）
+Private Function TkBuildParent(ByVal rows As Collection, ByVal lay As Object, _
+                               ByVal head0 As Long, ByVal maxC As Long, ByVal carry As Boolean, _
+                               ByVal wSho As String, ByVal wKan As String, _
+                               ByVal aggKeys As Collection) As Object
+    Dim agg As Object
+    Dim arr() As String, e As Variant
+    Dim i As Long, kcol As Long
+    Dim isLabel As Boolean, hasQty As Boolean
+    Dim curKubun As String, kubun As String, kind As String
+    Dim daika As String, oya As String, tgt As String
+    Dim k As String, nm As String
+    Dim qty As Double, amt As Double
+
+    Set agg = CreateObject("Scripting.Dictionary")
+    agg.CompareMode = 1
+    Set TkBuildParent = agg
+    kcol = TkKubunCol(lay)
+    curKubun = ""
+
+    For i = head0 + 1 To rows.Count
+        arr = rows(i)
+        isLabel = False
+        kubun = Trim$(ColVal(arr, kcol))
+
+        If carry Then
+            If kubun <> "" Then
+                If TkDataCells(arr, maxC, kcol) < 3 Then isLabel = True
+            End If
+            If isLabel Then curKubun = kubun
+        Else
+            curKubun = kubun
+        End If
+
+        If Not isLabel Then
+            kind = TkKind(curKubun, wSho, wKan)
+            nm = Trim$(ColVal(arr, TkCol(lay, "名称")))
+            daika = Trim$(ColVal(arr, TkCol(lay, "代価表コード")))
+            oya = Trim$(ColVal(arr, TkCol(lay, "親コード")))
+
+            ' 代価表のコードがあればそれが内訳の行。無ければ親施工単価のコードが内訳の行
+            tgt = ""
+            hasQty = False
+            If TkIsCodeish(daika) Then
+                tgt = daika
+            ElseIf TkIsCodeish(oya) Then
+                tgt = oya
+                hasQty = True
+            End If
+
+            If kind <> "" And tgt <> "" Then
+                qty = ToNum(ColVal(arr, TkCol(lay, "親数量")))
+                amt = ToNum(ColVal(arr, TkCol(lay, "金額")))
+                k = NormText(tgt) & "|" & IIf(hasQty, TkQtyKey(qty), "")
+
+                If agg.Exists(k) Then
+                    e = agg(k)
+                    If CStr(e(0)) <> "処分" Then e(0) = kind
+                    e(1) = CDbl(e(1)) + amt
+                    e(2) = CStr(e(2)) & "," & CStr(i)
+                    If nm <> "" And InStr(1, CStr(e(5)), nm) = 0 Then e(5) = CStr(e(5)) & "／" & nm
+                    e(9) = CLng(e(9)) + 1
+                    agg(k) = e
+                Else
+                    agg.Add k, Array(kind, amt, CStr(i), curKubun, tgt, nm, "", "", False, 1, _
+                                     IIf(hasQty, CStr(qty), ""))
+                    aggKeys.Add k
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+
+' CSVを「コード｜名称｜規格｜単位」ごとの待ち行列にする（親のコードが無い体裁用）
+Private Function TkBuildByKey(ByVal rows As Collection, ByVal lay As Object, _
+                              ByVal head0 As Long, ByVal maxC As Long, ByVal carry As Boolean, _
+                              ByVal wSho As String, ByVal wKan As String) As Object
+    Dim map As Object, q As Collection
+    Dim arr() As String
+    Dim i As Long, kcol As Long
+    Dim isLabel As Boolean
+    Dim curKubun As String, kubun As String, kind As String, nm As String, k As String
+
     Set map = CreateObject("Scripting.Dictionary")
     map.CompareMode = 1
+    Set TkBuildByKey = map
+    kcol = TkKubunCol(lay)
     curKubun = ""
+
     For i = head0 + 1 To rows.Count
         arr = rows(i)
         isLabel = False
@@ -269,177 +577,66 @@ Public Sub 特殊集計区分CSV取込()
                           TkKikaku(arr, lay), Trim$(ColVal(arr, TkCol(lay, "単位"))))
                 If Not map.Exists(k) Then map.Add k, New Collection
                 Set q = map(k)
-                q.Add Array(kind, ToNum(ColVal(arr, TkCol(lay, "金額"))), i, curKubun, _
+                q.Add Array(kind, ToNum(ColVal(arr, TkCol(lay, "金額"))), CStr(i), curKubun, _
                             Trim$(ColVal(arr, TkCol(lay, "コード"))), nm, _
-                            TkKikaku(arr, lay), Trim$(ColVal(arr, TkCol(lay, "単位"))), _
-                            ToNum(ColVal(arr, TkCol(lay, "数量"))))
+                            TkKikaku(arr, lay), Trim$(ColVal(arr, TkCol(lay, "単位"))), False, 1, _
+                            TkNumStr(ColVal(arr, TkCol(lay, "数量"))))
             End If
         End If
     Next i
+End Function
 
-    '--- 結果シート ---
-    Set rs = FreshSheet(SH_TK_RESULT)
-    rs.Range("A1").Value = "特殊集計区分CSV 取込結果"
-    rs.Range("A1").Font.Bold = True
-    rs.Range("A2").Value = "ファイル：" & Mid$(CStr(v), InStrRev(CStr(v), Application.PathSeparator) + 1)
-    rs.Range("A3").Value = "読み取った並び：" & TkLayText(lay)
-    rs.Range("A5").Value = "CSV行"
-    rs.Range("B5").Value = "特殊集計区分"
-    rs.Range("C5").Value = "判定"
-    rs.Range("D5").Value = "コード"
-    rs.Range("E5").Value = "名称"
-    rs.Range("F5").Value = "規格"
-    rs.Range("G5").Value = "単位"
-    rs.Range("H5").Value = "CSVの数量"
-    rs.Range("I5").Value = "CSVの金額"
-    rs.Range("J5").Value = "計算表の行"
-    rs.Range("K5").Value = "結果"
-    With rs.Range("A5:K5")
-        .Font.Bold = True
-        .Interior.Color = CLR_HEAD
-        .Borders.LineStyle = xlContinuous
-    End With
-    rr = 5
 
-    '--- 明細行を上から見て、キーが合うものを1つずつ使う ---
-    lastRow = ws.Cells(ws.Rows.Count, SC_CODE).End(xlUp).Row
-    If lastRow < FIRST_ROW Then lastRow = FIRST_ROW
+' 計算表の明細行に当たるまとまりをさがす
+Private Function TkFindGroup(ByVal agg As Object, ByVal aggKeys As Collection, _
+                             ByVal cd As String, ByVal qv As Double, _
+                             ByRef note As String) As String
+    Dim k As String, kk As String
+    Dim e As Variant
+    Dim i As Long, pos As Long
 
-    If doClear Then
-        For r = FIRST_ROW To lastRow
-            If TkIsDetail(ws, r) Then
-                ws.Cells(r, SC_MK_SHOBU).ClearContents
-                ws.Cells(r, SC_MK_KANZA).ClearContents
-                ws.Cells(r, SC_SHA_O).ClearContents
-            End If
-        Next r
+    note = ""
+    If cd = "" Then Exit Function
+
+    ' 1) コードと数量が一致する
+    k = cd & "|" & TkQtyKey(qv)
+    If agg.Exists(k) Then
+        e = agg(k)
+        If Not CBool(e(8)) Then TkFindGroup = k: Exit Function
     End If
 
-    For r = FIRST_ROW To lastRow
-        If TkIsDetail(ws, r) Then
-            k = TkKey(CStr(ws.Cells(r, SC_CODE).Value), CStr(ws.Cells(r, SC_NAME).Value), _
-                      CStr(ws.Cells(r, SC_KIKAKU).Value), CStr(ws.Cells(r, SC_TANI).Value))
-            If map.Exists(k) Then
-                Set q = map(k)
-                If q.Count > 0 Then
-                    e = q(1)
-                    q.Remove 1
+    ' 2) 数量が分からないまとまり（代価表の中にある処分費）
+    k = cd & "|"
+    If agg.Exists(k) Then
+        e = agg(k)
+        If Not CBool(e(8)) Then TkFindGroup = k: Exit Function
+    End If
 
-                    rr = rr + 1
-                    TkResRow rs, rr, e, r
-
-                    If CStr(e(0)) = "処分" Then
-                        If IsScrapName(CStr(e(5))) Then
-                            rs.Cells(rr, 11).Value = "スクラップなので処分費にしませんでした"
-                            rs.Cells(rr, 11).Font.Color = RGB(192, 0, 0)
-                            nSkip = nSkip + 1
-                        Else
-                            ws.Cells(r, SC_MK_SHOBU).Value = "〇"
-                            nSho = nSho + 1
-                            If useKin And CDbl(e(1)) <> 0 Then
-                                ws.Cells(r, SC_SHA_O).Value = CDbl(e(1))
-                                nKin = nKin + 1
-                                rs.Cells(rr, 11).Value = "O列に〇／AA列に金額を入れました"
-                            Else
-                                rs.Cells(rr, 11).Value = "O列に〇を入れました（金額はCSVに無し）"
-                            End If
-                            ' CSVの数量と計算表のK列が違えば、金額の意味が合っていない疑い
-                            If CDbl(e(8)) <> 0 And IsNumeric(ws.Cells(r, SC_Q_ALL).Value) Then
-                                If Abs(CDbl(e(8)) - CDbl(ws.Cells(r, SC_Q_ALL).Value)) > 0.001 Then
-                                    rs.Cells(rr, 8).Interior.Color = CLR_INPUT
-                                    rs.Cells(rr, 11).Value = CStr(rs.Cells(rr, 11).Value) & _
-                                        "　※数量が計算表(" & ws.Cells(r, SC_Q_ALL).Value & ")と違います"
-                                    warnQ = warnQ + 1
-                                End If
-                            End If
-                        End If
-                    ElseIf CStr(e(0)) = "管材" Then
-                        ws.Cells(r, SC_MK_KANZA).Value = "〇"
-                        nKan = nKan + 1
-                        rs.Cells(rr, 11).Value = "P列に〇を入れました"
-                    End If
+    ' 3) コードだけ一致する（数量は合わない）
+    For i = 1 To aggKeys.Count
+        kk = CStr(aggKeys(i))
+        pos = InStr(1, kk, "|")
+        If pos > 1 Then
+            If Left$(kk, pos - 1) = cd Then
+                e = agg(kk)
+                If Not CBool(e(8)) Then
+                    note = "　※CSVの数量と計算表の数量が合いません"
+                    TkFindGroup = kk
+                    Exit Function
                 End If
             End If
         End If
-    Next r
-
-    '--- 使われなかったCSV行 ---
-    Set rest = New Collection
-    For Each kAny In map.Keys
-        Set q = map(CStr(kAny))
-        For i = 1 To q.Count
-            rest.Add q(i)
-        Next i
-    Next kAny
-
-    If rest.Count > 0 Then
-        rr = rr + 2
-        rs.Cells(rr, 1).Value = "▼ 計算表に同じ明細が見つからなかったCSV行（" & rest.Count & "行）" & _
-            "　…　代価表の中の行かもしれません。手でO列・P列に〇を付けてください"
-        rs.Cells(rr, 1).Font.Bold = True
-        rs.Cells(rr, 1).Font.Color = RGB(192, 0, 0)
-        For i = 1 To rest.Count
-            rr = rr + 1
-            TkResRow rs, rr, rest(i), 0
-            rs.Cells(rr, 11).Value = "見つかりませんでした"
-            rs.Cells(rr, 11).Font.Color = RGB(192, 0, 0)
-        Next i
-    End If
-
-    rs.Columns("A").ColumnWidth = 7
-    rs.Columns("B").ColumnWidth = 18
-    rs.Columns("C").ColumnWidth = 8
-    rs.Columns("D").ColumnWidth = 12
-    rs.Columns("E").ColumnWidth = 26
-    rs.Columns("F").ColumnWidth = 26
-    rs.Columns("G").ColumnWidth = 6
-    rs.Columns("H").ColumnWidth = 11
-    rs.Columns("I").ColumnWidth = 13
-    rs.Columns("J").ColumnWidth = 10
-    rs.Columns("K").ColumnWidth = 46
-    rs.Columns("I").NumberFormat = "#,##0"
-
-    Application.ScreenUpdating = True
-    ws.Activate
-
-    MsgBox "特殊集計区分CSVを取り込みました。" & vbCrLf & vbCrLf & _
-           "処分費〇（O列）　：" & nSho & " 行" & vbCrLf & _
-           "　うち金額もAA列へ：" & nKin & " 行" & vbCrLf & _
-           "管材費〇（P列）　：" & nKan & " 行" & vbCrLf & _
-           "スクラップで除外　：" & nSkip & " 行" & vbCrLf & _
-           "見つからなかった行：" & rest.Count & " 行" & vbCrLf & _
-           IIf(warnQ > 0, "数量が合わない行　：" & warnQ & " 行" & vbCrLf, "") & vbCrLf & _
-           "内容は「" & SH_TK_RESULT & "」シートで確認できます。" & vbCrLf & _
-           IIf(rest.Count > 0 Or warnQ > 0, _
-               "赤字・黄色の行は手で直してください。", "すべて取り込めました。"), vbInformation
-    Exit Sub
-
-ErrHandler:
-    Application.ScreenUpdating = True
-    MsgBox "エラーが発生しました。" & vbCrLf & vbCrLf & _
-           "内容：" & Err.Description & "（" & Err.Number & "）", vbCritical
-End Sub
+    Next i
+End Function
 
 
-'==============================================================
-' 内部処理
-'==============================================================
-
-' 結果シートに1行書く
-Private Sub TkResRow(ByVal rs As Worksheet, ByVal rr As Long, ByVal e As Variant, _
-                     ByVal sheetRow As Long)
-    rs.Cells(rr, 1).Value = e(2)
-    rs.Cells(rr, 2).Value = e(3)
-    rs.Cells(rr, 3).Value = TkKindName(CStr(e(0)))
-    rs.Cells(rr, 4).Value = "'" & CStr(e(4))
-    rs.Cells(rr, 5).Value = e(5)
-    rs.Cells(rr, 6).Value = e(6)
-    rs.Cells(rr, 7).Value = e(7)
-    If CDbl(e(8)) <> 0 Then rs.Cells(rr, 8).Value = CDbl(e(8))
-    If CDbl(e(1)) <> 0 Then rs.Cells(rr, 9).Value = CDbl(e(1))
-    If sheetRow > 0 Then rs.Cells(rr, 10).Value = sheetRow
-    rs.Range(rs.Cells(rr, 1), rs.Cells(rr, 11)).Borders.LineStyle = xlContinuous
-End Sub
+' 数値を表示用の文字にする（空・0なら空文字）
+Private Function TkNumStr(ByVal s As String) As String
+    Dim d As Double
+    d = ToNum(s)
+    If d = 0 Then Exit Function
+    TkNumStr = CStr(d)
+End Function
 
 
 ' 明細行かどうか（AC列の処分費額の式は明細行だけが持っている）
@@ -570,7 +767,8 @@ Private Function TkDetect(ByVal rows As Collection, ByVal spec As String, _
 
     Set lay = CreateObject("Scripting.Dictionary")
     lay.CompareMode = 1
-    ks = Array("区分", "コード", "名称", "単位", "規格1", "規格2", "数量", "単価", "金額", "摘要")
+    ks = Array("区分", "区分名称", "コード", "名称", "単位", "規格1", "規格2", "数量", "単価", "金額", _
+               "摘要", "代価表コード", "親コード", "親数量")
     For Each kk In ks
         lay(CStr(kk)) = 0
     Next kk
@@ -770,6 +968,29 @@ Private Function TkDetect(ByVal rows As Collection, ByVal spec As String, _
 End Function
 
 
+' 判定に使う区分の列（「集計区分名称」があればそちら。無ければ「集計区分」）
+Private Function TkKubunCol(ByVal lay As Object) As Long
+    If TkCol(lay, "区分名称") > 0 Then
+        TkKubunCol = TkCol(lay, "区分名称")
+    Else
+        TkKubunCol = TkCol(lay, "区分")
+    End If
+End Function
+
+
+' 代価表・親施工単価コードで突合できる体裁か
+Private Function TkIsParentMode(ByVal lay As Object) As Boolean
+    If TkCol(lay, "親コード") > 0 Then TkIsParentMode = True: Exit Function
+    If TkCol(lay, "代価表コード") > 0 Then TkIsParentMode = True
+End Function
+
+
+' 数量をまとめキーにする
+Private Function TkQtyKey(ByVal q As Double) As String
+    TkQtyKey = Format$(q, "0.000000")
+End Function
+
+
 Private Function TkCol(ByVal lay As Object, ByVal name As String) As Long
     If lay Is Nothing Then Exit Function
     If Not lay.Exists(name) Then Exit Function
@@ -783,8 +1004,21 @@ Private Function TkHeadName(ByVal s As String) As String
     t = NormText(s)
     If t = "" Then Exit Function
 
-    If InStr(1, t, "特殊集計") > 0 Or InStr(1, t, "集計区分") > 0 Then TkHeadName = "区分": Exit Function
+    If InStr(1, t, "特殊集計") > 0 Or InStr(1, t, "集計区分") > 0 Then
+        ' 「集計区分」は番号、「集計区分名称」が名前。判定には名前を使う
+        If InStr(1, t, "名称") > 0 Then TkHeadName = "区分名称" Else TkHeadName = "区分"
+        Exit Function
+    End If
     If t = "区分" Then TkHeadName = "区分": Exit Function
+    If InStr(1, t, "代価表") > 0 Then TkHeadName = "代価表コード": Exit Function
+    If InStr(1, t, "親") > 0 Then
+        If InStr(1, t, "数量") > 0 Then
+            TkHeadName = "親数量"
+        ElseIf InStr(1, t, "コード") > 0 Then
+            TkHeadName = "親コード"
+        End If
+        Exit Function
+    End If
     If InStr(1, t, "コード") > 0 Then TkHeadName = "コード": Exit Function
     If InStr(1, t, "名称") > 0 Or InStr(1, t, "品名") > 0 Then TkHeadName = "名称": Exit Function
     If InStr(1, t, "規格") > 0 Or InStr(1, t, "仕様") > 0 Then
@@ -869,7 +1103,8 @@ End Function
 
 Private Function TkColRole(ByVal lay As Object, ByVal c As Long) As String
     Dim ks As Variant, kk As Variant
-    ks = Array("区分", "コード", "名称", "単位", "規格1", "規格2", "数量", "単価", "金額", "摘要")
+    ks = Array("区分", "区分名称", "コード", "名称", "単位", "規格1", "規格2", "数量", "単価", "金額", _
+               "摘要", "代価表コード", "親コード", "親数量")
     For Each kk In ks
         If TkCol(lay, CStr(kk)) = c Then TkColRole = vbLf & "＝" & CStr(kk): Exit Function
     Next kk
@@ -879,13 +1114,17 @@ End Function
 Private Function TkLayText(ByVal lay As Object) As String
     Dim ks As Variant, kk As Variant
     Dim s As String
-    ks = Array("区分", "コード", "名称", "単位", "規格1", "規格2", "数量", "金額")
+    ks = Array("区分", "区分名称", "コード", "名称", "単位", "規格1", "規格2", "数量", "金額", _
+               "代価表コード", "親コード", "親数量")
     For Each kk In ks
-        If s <> "" Then s = s & "／"
-        s = s & CStr(kk) & "=" & IIf(TkCol(lay, CStr(kk)) = 0, "なし", CStr(TkCol(lay, CStr(kk))) & "列")
+        If TkCol(lay, CStr(kk)) > 0 Then
+            If s <> "" Then s = s & "／"
+            s = s & CStr(kk) & "=" & CStr(TkCol(lay, CStr(kk))) & "列"
+        End If
     Next kk
     s = s & vbCrLf & "見出し行=" & IIf(CLng(lay("見出し行")) = 0, "なし", CStr(lay("見出し行"))) & _
-        "／区分の引き継ぎ=" & IIf(CBool(lay("区分は見出し行")), "する", "しない")
+        "／区分の引き継ぎ=" & IIf(CBool(lay("区分は見出し行")), "する", "しない") & _
+        "／突合=" & IIf(TkIsParentMode(lay), "親コード（代価表・親施工単価）", "コード＋名称＋規格＋単位")
     TkLayText = s
 End Function
 
