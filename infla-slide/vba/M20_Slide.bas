@@ -121,6 +121,15 @@ Public Sub 設定シート作成()
     PutItem ws, r, "新工種の自動判定", "する", _
             "する／しない。採用しなかった側の数量が0で、採用側に数量がある明細にQ列の〇を付けます（考慮する場合のみ）": r = r + 2
 
+    PutHead ws, r, "【特殊集計区分CSVの設定】", "エスティマの「特殊集計区分一覧表」CSV。処分費〇・管材費〇を自動で入れます": r = r + 1
+    PutItem ws, r, "特殊集計区分CSVパス", "", "空欄なら［特殊集計区分CSV取込］の実行時に選択":  r = r + 1
+    PutItem ws, r, "特殊集計CSV列指定", "自動", _
+            "自動／または 区分=14,コード=1,名称=2,単位=3,規格1=4,規格2=5,金額=11 のように列番号（A,Bでも可）": r = r + 1
+    PutItem ws, r, "処分費の区分名", "処分", "特殊集計区分の名前にこの文字が入る行をO列の〇にします。カンマ区切りで複数可": r = r + 1
+    PutItem ws, r, "管材費の区分名", "水道,管材,管財", "同じくP列の〇にします":              r = r + 1
+    PutItem ws, r, "特殊集計CSVから処分費額も入れる", "する", _
+            "する／しない。するとCSVの金額をAA列（処分費額・全数量分）に入れます":          r = r + 2
+
     PutHead ws, r, "【経費計算の設定】":                                                r = r + 1
     PutItem ws, r, "契約保証費", 0, "当初設計時の額で固定":                             r = r + 1
     PutItem ws, r, "処分費控除率", 0.03, "③＝②－ROUNDDOWN((①－①'/2)×この率,0)":     r = r + 1
@@ -194,6 +203,16 @@ Public Function 設定シート更新() As Long
         "する／しない。当初数量0・変更数量ありの明細にQ列の〇を付けます")
     added = added + AddIfMissing(ws, cfg, r, "使用系列", "変更", _
         "変更／当初。CSVの①列＝変更設計、②列＝当初設計")
+    added = added + AddIfMissing(ws, cfg, r, "特殊集計区分CSVパス", "", _
+        "空欄なら［特殊集計区分CSV取込］の実行時に選択")
+    added = added + AddIfMissing(ws, cfg, r, "特殊集計CSV列指定", "自動", _
+        "自動／または 区分=14,コード=1,名称=2,単位=3,規格1=4,規格2=5,金額=11 のように列番号")
+    added = added + AddIfMissing(ws, cfg, r, "処分費の区分名", "処分", _
+        "特殊集計区分の名前にこの文字が入る行をO列の〇にします")
+    added = added + AddIfMissing(ws, cfg, r, "管材費の区分名", "水道,管材,管財", _
+        "同じくP列の〇にします")
+    added = added + AddIfMissing(ws, cfg, r, "特殊集計CSVから処分費額も入れる", "する", _
+        "する／しない。CSVの金額をAA列（処分費額・全数量分）に入れます")
     added = added + AddIfMissing(ws, cfg, r, "契約保証費", 0, "当初設計時の額で固定")
     added = added + AddIfMissing(ws, cfg, r, "処分費控除率", 0.03, "")
     added = added + AddIfMissing(ws, cfg, r, "消費税率", 0.1, "")

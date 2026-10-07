@@ -21,6 +21,7 @@
 - モジュールの仕様：[`vba/README.md`](vba/README.md)
 - CSVの仕様解析：[`docs/CSV仕様_スライド用csv出力.md`](docs/CSV仕様_スライド用csv出力.md)
 - 経費計算シート・様式4-2号の解析：[`docs/経費計算シートと様式4-2号.md`](docs/経費計算シートと様式4-2号.md)
+- 特殊集計区分CSVからの処分費自動入力：[`docs/特殊集計区分CSV.md`](docs/特殊集計区分CSV.md)
 - 単価調整Excelから抽出した元VBA：[`reference/単価調整VBA/`](reference/単価調整VBA/)
 
 ## 受け渡しの方法（ネットワーク制限対応）
