@@ -17,9 +17,13 @@
 '
 ' 一覧表は「内訳の明細」ではなく「代価表の中の基礎単価」を並べたものなので、
 ' 内訳の行は次の順にコードでたどります。
-'   1) 代価表等コード番号   （内訳に出てくる代価表のコード）
-'   2) 親施工単価コード番号 （代価表が「―」のとき内訳に出てくるコード）
-'   3) 基礎単価コード       （上の2つが内訳に無いときの最後の手段）
+'   1) F列 代価表等コード番号   （内訳に出てくる代価表のコード。これが本筋）
+'   2) G列 親施工単価コード番号 （代価表が「―」のとき内訳に出てくるコード）
+'   3) 基礎単価コード           （上の2つで当たらないときの最後の手段）
+' それぞれについて、内訳に無ければ「_単価表」シート（代価表の中身の索引）を使って
+' 所属する代価表までさかのぼり、その代価表の内訳の行に当てます。
+'   例）G列=V0013 は内訳に無いが、単価表部では代価表G0001の中にある
+'       → 内訳のG0001 ／再掘削工 の行に当てる
 ' 同じコードの明細が複数あるときは、親施工数量・名称で絞り込みます。
 ' 同じ内訳の行に当たる行が複数あれば、金額を合算します。
 '==============================================================
@@ -180,7 +184,7 @@ End Sub
 '==============================================================
 Public Sub 特殊集計区分CSV取込()
     Dim ws As Worksheet, rs As Worksheet
-    Dim cfg As Object, acc As Object, rowsByCode As Object
+    Dim cfg As Object, acc As Object, rowsByCode As Object, tankaIdx As Object
     Dim missBef As Collection, missAft As Collection
     Dim e As Variant, m As Variant
     Dim pathBef As String, pathAft As String
@@ -236,6 +240,7 @@ Public Sub 特殊集計区分CSV取込()
     lastRow = ws.Cells(ws.Rows.Count, SC_CODE).End(xlUp).Row
     If lastRow < FIRST_ROW Then lastRow = FIRST_ROW
     Set rowsByCode = TkRowsByCode(ws, lastRow)
+    Set tankaIdx = TkTankaIndex()
 
     If rowsByCode.Count = 0 Then
         Application.ScreenUpdating = True
@@ -249,9 +254,9 @@ Public Sub 特殊集計区分CSV取込()
     Set missBef = New Collection
     Set missAft = New Collection
 
-    TkReadOne ws, cfg, pathBef, True, rowsByCode, acc, missBef, wSho, wKan, layBef, nBefRows
+    TkReadOne ws, cfg, pathBef, True, rowsByCode, tankaIdx, acc, missBef, wSho, wKan, layBef, nBefRows
     If pathAft <> "" Then
-        TkReadOne ws, cfg, pathAft, False, rowsByCode, acc, missAft, wSho, wKan, layAft, nAftRows
+        TkReadOne ws, cfg, pathAft, False, rowsByCode, tankaIdx, acc, missAft, wSho, wKan, layAft, nAftRows
     End If
 
     '--- 結果シート ---
@@ -482,6 +487,7 @@ End Function
 ' 一覧表CSVを1本読んで、計算表の行ごとに集計する
 Private Sub TkReadOne(ByVal ws As Worksheet, ByVal cfg As Object, ByVal filePath As String, _
                       ByVal isBefore As Boolean, ByVal rowsByCode As Object, _
+                      ByVal tankaIdx As Object, _
                       ByVal acc As Object, ByVal miss As Collection, _
                       ByVal wSho As String, ByVal wKan As String, _
                       ByRef layText As String, ByRef nDataRows As Long)
@@ -541,34 +547,32 @@ Private Sub TkReadOne(ByVal ws As Worksheet, ByVal cfg As Object, ByVal filePath
                 If TkCol(lay, "親数量") = 0 Then qty = ToNum(ColVal(arr, TkCol(lay, "数量")))
                 amt = ToNum(ColVal(arr, TkCol(lay, "金額")))
 
-                '--- 内訳の行をコードでたどる ---
+                '--- 内訳の行をコードでたどる（F列 → G列 → 基礎単価コード）---
                 tgtRow = 0
                 tgtCode = ""
                 which = ""
                 cands = ""
                 note = ""
 
-                ' 1) 代価表等コード番号（親施工数量は代価表の中の数量なので使わない）
+                ' 1) F列 代価表等コード番号（親施工数量は代価表の中の数量なので使わない）
                 If TkIsCodeish(daika) Then
-                    cands = daika
-                    tgtRow = TkPickRow(ws, rowsByCode, daika, 0, False, "", n1)
-                    If tgtRow > 0 Then tgtCode = daika: which = "代価表": note = n1
+                    cands = "F列:" & daika
+                    tgtRow = TkResolve(ws, rowsByCode, tankaIdx, daika, 0, False, "", 0, n1, tgtCode)
+                    If tgtRow > 0 Then which = "F列 代価表": note = n1
                 End If
 
-                ' 2) 親施工単価コード番号
+                ' 2) G列 親施工単価コード番号
                 If tgtRow = 0 And TkIsCodeish(oya) Then
                     If cands <> "" Then cands = cands & " → "
-                    cands = cands & oya
-                    hasQty = Not TkIsCodeish(daika)
+                    cands = cands & "G列:" & oya
                     ' 基礎単価がそのまま内訳に出ている場合に備えて名称も手がかりにする
-                    tgtRow = TkPickRow(ws, rowsByCode, oya, qty, hasQty, _
-                                       IIf(NormText(oya) = NormText(baseCode), nm, ""), n1)
+                    tgtRow = TkResolve(ws, rowsByCode, tankaIdx, oya, qty, True, _
+                                       IIf(NormText(oya) = NormText(baseCode), nm, ""), 0, n1, tgtCode)
                     If tgtRow > 0 Then
-                        tgtCode = oya
-                        which = "親施工単価"
+                        which = "G列 親施工単価"
                         note = n1
                         If TkIsCodeish(daika) Then
-                            note = note & "※代価表のコード(" & daika & ")が計算表に無いので親施工単価コードで当てました"
+                            note = note & "※F列(" & daika & ")では当たらないのでG列で当てました"
                         End If
                     End If
                 End If
@@ -576,10 +580,9 @@ Private Sub TkReadOne(ByVal ws As Worksheet, ByVal cfg As Object, ByVal filePath
                 ' 3) 基礎単価コード（名称も手がかりに使う）
                 If tgtRow = 0 And TkIsCodeish(baseCode) Then
                     If cands <> "" Then cands = cands & " → "
-                    cands = cands & baseCode
-                    tgtRow = TkPickRow(ws, rowsByCode, baseCode, qty, True, nm, n1)
+                    cands = cands & "基礎単価:" & baseCode
+                    tgtRow = TkResolve(ws, rowsByCode, tankaIdx, baseCode, qty, True, nm, 0, n1, tgtCode)
                     If tgtRow > 0 Then
-                        tgtCode = baseCode
                         which = "基礎単価"
                         note = n1 & "※基礎単価コードで当てました"
                     End If
@@ -650,6 +653,159 @@ End Sub
 
 Private Function TkJoin(ByVal a As String, ByVal b As String) As String
     If a = "" Then TkJoin = b Else TkJoin = a & "," & b
+End Function
+
+
+' 「_単価表」シート（代価表の中身の索引）を読む
+'   コード → Array(所属代価表, 数量) の一覧
+Private Function TkTankaIndex() As Object
+    Dim d As Object, c As Collection
+    Dim ws As Worksheet
+    Dim r As Long, lastR As Long
+    Dim k As String
+
+    Set d = CreateObject("Scripting.Dictionary")
+    d.CompareMode = 1
+    Set TkTankaIndex = d
+
+    If Not SheetExists(SH_TANKA) Then Exit Function
+    Set ws = ThisWorkbook.Worksheets(SH_TANKA)
+
+    lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    For r = 3 To lastR
+        k = NormText(CStr(ws.Cells(r, 1).Value))
+        If k <> "" Then
+            If Not d.Exists(k) Then d.Add k, New Collection
+            Set c = d(k)
+            c.Add Array(NormText(CStr(ws.Cells(r, 2).Value)), ToNum(CStr(ws.Cells(r, 5).Value)))
+        End If
+    Next r
+End Function
+
+
+' コードから内訳の行を決める
+'   a) 内訳に数量の合う行があればそれ
+'   b) 単価表部に数量の合う行があれば、その所属代価表までさかのぼって同じことをする
+'   c) 内訳にそのコードの行があればそれ（名称→数量→先頭の順で絞る）
+'   d) 単価表部にその コードが1件だけあれば、その所属代価表までさかのぼる
+Private Function TkResolve(ByVal ws As Worksheet, ByVal rowsByCode As Object, _
+                           ByVal tankaIdx As Object, ByVal code As String, _
+                           ByVal qty As Double, ByVal useQty As Boolean, _
+                           ByVal nmHint As String, ByVal depth As Long, _
+                           ByRef note As String, ByRef hitCode As String) As Long
+    Dim r As Long
+    Dim owner As String
+    Dim n2 As String
+
+    note = ""
+    If depth > 5 Then Exit Function
+    If Not TkIsCodeish(code) Then Exit Function
+
+    ' a) 内訳に数量の合う行
+    If useQty And qty <> 0 Then
+        r = TkRowByQty(ws, rowsByCode, code, qty)
+        If r > 0 Then hitCode = code: TkResolve = r: Exit Function
+    End If
+
+    ' b) 単価表部に数量の合う行 → その所属代価表へ
+    If useQty And qty <> 0 Then
+        owner = TkOwnerOf(tankaIdx, code, qty, True)
+        If owner <> "" Then
+            r = TkResolve(ws, rowsByCode, tankaIdx, owner, 0, False, "", depth + 1, n2, hitCode)
+            If r > 0 Then
+                note = "※" & code & "（数量" & qty & "）は代価表" & owner & _
+                       "の中にあるので、その行に入れました" & n2
+                TkResolve = r
+                Exit Function
+            End If
+        End If
+    End If
+
+    ' c) 内訳にそのコードの行
+    r = TkPickRow(ws, rowsByCode, code, qty, useQty, nmHint, n2)
+    If r > 0 Then
+        hitCode = code
+        note = n2
+        TkResolve = r
+        Exit Function
+    End If
+
+    ' d) 単価表部にそのコードが1件だけ → その所属代価表へ
+    owner = TkOwnerOf(tankaIdx, code, 0, False)
+    If owner <> "" Then
+        r = TkResolve(ws, rowsByCode, tankaIdx, owner, 0, False, "", depth + 1, n2, hitCode)
+        If r > 0 Then
+            note = "※" & code & " は代価表" & owner & "の中にあるので、その行に入れました" & n2
+            TkResolve = r
+        End If
+    End If
+End Function
+
+
+' 単価表部で、そのコードが入っている代価表のコードを返す
+'   exact=True のときは数量も一致するものだけ。候補が複数あって決められなければ空
+Private Function TkOwnerOf(ByVal tankaIdx As Object, ByVal code As String, _
+                           ByVal qty As Double, ByVal exact As Boolean) As String
+    Dim c As Collection
+    Dim e As Variant
+    Dim i As Long
+    Dim k As String, found As String
+
+    If tankaIdx Is Nothing Then Exit Function
+    k = NormText(code)
+    If k = "" Then Exit Function
+    If Not tankaIdx.Exists(k) Then Exit Function
+
+    Set c = tankaIdx(k)
+
+    If exact Then
+        For i = 1 To c.Count
+            e = c(i)
+            If Abs(CDbl(e(1)) - qty) < 0.001 Then
+                If found = "" Then
+                    found = CStr(e(0))
+                ElseIf found <> CStr(e(0)) Then
+                    Exit Function          ' 決められない
+                End If
+            End If
+        Next i
+        TkOwnerOf = found
+        Exit Function
+    End If
+
+    For i = 1 To c.Count
+        e = c(i)
+        If found = "" Then
+            found = CStr(e(0))
+        ElseIf found <> CStr(e(0)) Then
+            Exit Function                  ' 所属代価表が複数あって決められない
+        End If
+    Next i
+    TkOwnerOf = found
+End Function
+
+
+' 内訳で、そのコードかつ数量が一致する行をさがす
+Private Function TkRowByQty(ByVal ws As Worksheet, ByVal rowsByCode As Object, _
+                            ByVal code As String, ByVal qty As Double) As Long
+    Dim c As Collection
+    Dim i As Long, r As Long
+    Dim k As String
+
+    k = NormText(code)
+    If k = "" Then Exit Function
+    If Not rowsByCode.Exists(k) Then Exit Function
+
+    Set c = rowsByCode(k)
+    For i = 1 To c.Count
+        r = CLng(c(i))
+        If IsNumeric(ws.Cells(r, SC_Q_ALL).Value) Then
+            If Abs(CDbl(ws.Cells(r, SC_Q_ALL).Value) - qty) < 0.001 Then
+                TkRowByQty = r
+                Exit Function
+            End If
+        End If
+    Next i
 End Function
 
 

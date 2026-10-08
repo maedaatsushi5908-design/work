@@ -49,6 +49,7 @@ Public Const SC_SN_DONE  As Long = 35   ' AI 処分費額 新抜き・出来形
 Public Const SC_LAST     As Long = 35
 
 Public Const SH_SLIDE    As String = "スライド計算表"
+Public Const SH_TANKA    As String = "_単価表"
 Public Const FIRST_ROW   As Long = 8
 
 Public Const CLR_INPUT   As Long = 65535          ' 黄色（手入力）
@@ -359,13 +360,77 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
     gLastRow = r
     FinishSheet ws, r
 
+    '--- 単価表部（代価表の中身）を辿れるように索引を作る ---
+    '    特殊集計区分CSVの取込で、代価表の中にある処分費から内訳の行へ上がるのに使います
+    If firstX > 1 Then WriteTankaIndex recOld, firstX - 1
+
     If skippedG > 0 Then
         warnText = warnText & IIf(warnText = "", "", vbCrLf) & _
-                   "X1000より前の " & skippedG & " 行（Gコードの単価表）は内訳に入れていません。"
+                   "X1000より前の " & skippedG & " 行（Gコードの単価表）は内訳に入れていません。" & vbCrLf & _
+                   "　（「" & SH_TANKA & "」シートに索引として残しています。特殊集計区分CSVの取込で使います）"
     End If
 
+    ws.Activate
     BuildSlideSheet = warnText
 End Function
+
+
+'--------------------------------------------------------------
+' 単価表部の索引
+'   代価表の見出し（Gコードで数量が無い行）から次の見出しまでが1つの代価表。
+'   その中の各行に「所属代価表」を付けて書き出しておく。
+'--------------------------------------------------------------
+Private Sub WriteTankaIndex(ByVal recs As Collection, ByVal lastIdx As Long)
+    Dim ws As Worksheet
+    Dim rec As Variant
+    Dim i As Long, r As Long
+    Dim owner As String
+
+    Set ws = FreshSheet(SH_TANKA)
+    ws.Range("A1").Value = "単価表部（代価表の中身）の索引　" & _
+        "※［特殊集計区分CSV取込］で、代価表の中の処分費から内訳の行へ上がるのに使います。消さないでください"
+    ws.Range("A1").Font.Bold = True
+
+    ws.Range("A2").Value = "コード"
+    ws.Range("B2").Value = "所属代価表"
+    ws.Range("C2").Value = "名称"
+    ws.Range("D2").Value = "単位"
+    ws.Range("E2").Value = "数量"
+    ws.Range("F2").Value = "規格"
+    With ws.Range("A2:F2")
+        .Font.Bold = True
+        .Interior.Color = CLR_HEAD
+        .Borders.LineStyle = xlContinuous
+    End With
+
+    r = 2
+    owner = ""
+    For i = 1 To lastIdx
+        rec = recs(i)
+        If CStr(rec(R_LEVEL)) = "G" And CDbl(rec(R_SURYO)) = 0 And CDbl(rec(R_SURYO2)) = 0 Then
+            ' 代価表の見出し（Gコードで数量が入っていない行）
+            owner = CStr(rec(R_CODE))
+        ElseIf owner <> "" Then
+            r = r + 1
+            ws.Cells(r, 1).Value = "'" & CStr(rec(R_CODE))
+            ws.Cells(r, 2).Value = "'" & owner
+            ws.Cells(r, 3).Value = rec(R_NAME)
+            ws.Cells(r, 4).Value = rec(R_TANI)
+            ws.Cells(r, 5).Value = rec(R_SURYO)
+            ws.Cells(r, 6).Value = rec(R_KIKAKU)
+        End If
+    Next i
+
+    If r > 2 Then ws.Range(ws.Cells(2, 1), ws.Cells(r, 6)).Borders.LineStyle = xlContinuous
+    ws.Columns("A:B").ColumnWidth = 13
+    ws.Columns("C").ColumnWidth = 28
+    ws.Columns("D").ColumnWidth = 6
+    ws.Columns("E").ColumnWidth = 10
+    ws.Columns("F").ColumnWidth = 26
+    On Error Resume Next
+    ws.Visible = xlSheetHidden
+    On Error GoTo 0
+End Sub
 
 
 '--------------------------------------------------------------
