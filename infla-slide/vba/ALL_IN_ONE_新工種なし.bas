@@ -2338,6 +2338,21 @@ Public Sub 特殊集計区分CSV取込()
     rs.Rows(5).RowHeight = 30
 
     Application.ScreenUpdating = True
+
+    If acc.Count = 0 Then
+        rs.Activate
+        MsgBox "1行も取り込めませんでした。" & vbCrLf & vbCrLf & _
+               "スライド前：" & layBef & vbCrLf & vbCrLf & _
+               IIf(pathAft = "", "", "スライド後：" & layAft & vbCrLf & vbCrLf) & _
+               "★が付いていれば、その列が読み取れていません。" & vbCrLf & _
+               "「" & SH_CONFIG & "」シートの「特殊集計CSV列指定」に" & vbCrLf & _
+               "　区分名称=5,コード=1,名称=2,金額=3,代価表コード=6,親コード=7,親数量=8" & vbCrLf & _
+               "のように書いてから、もう一度実行してください。" & vbCrLf & vbCrLf & _
+               "★が無ければ、コードが計算表のA列に無いということです。" & vbCrLf & _
+               "「" & SH_TK_RESULT & "」シートの「さがしたコード」を見てください。", vbExclamation
+        Exit Sub
+    End If
+
     ws.Activate
 
     MsgBox "特殊集計区分CSVを取り込みました。" & vbCrLf & vbCrLf & _
@@ -2443,6 +2458,21 @@ Private Sub TkReadOne(ByVal ws As Worksheet, ByVal cfg As Object, ByVal filePath
 
     Set lay = TkDetect(rows, TkSpecOf(cfg))
     layText = TkLayText(lay)
+
+    If TkCol(lay, "代価表コード") = 0 And TkCol(lay, "親コード") = 0 _
+       And TkCol(lay, "コード") = 0 Then
+        layText = "★コードの列が読み取れませんでした　" & layText
+        Exit Sub
+    End If
+    If TkKubunCol(lay) = 0 Then
+        layText = "★特殊集計区分の列が読み取れませんでした　" & layText
+        Exit Sub
+    End If
+    If TkCol(lay, "名称") = 0 Then
+        layText = "★名称の列が読み取れませんでした　" & layText
+        Exit Sub
+    End If
+
     maxC = CLng(lay("列数"))
     kcol = TkKubunCol(lay)
     head0 = CLng(lay("見出し行"))
@@ -3084,38 +3114,69 @@ End Function
 
 
 ' 見出しの文字から項目名を決める
-'   「代価表」「親」「コード」の順を守ること（基礎単価コードが単価に取られないように）
+'   NormText は StrConv(vbNarrow) で全角カタカナを半角にするので、
+'   「コード」のようなカタカナを含む語は、必ず語の側も NormText して比べること。
+'   （全角リテラルのまま比べると一致せず、親施工単価コード番号を読み落とす）
 Private Function TkHeadName(ByVal s As String) As String
-    Dim t As String
+    Dim t As String, raw As String
+
+    raw = Replace(Replace(Trim$(s), " ", ""), "　", "")
+    If raw = "" Then Exit Function
+
+    ' まず実物の見出し名そのままで照合する（文字コードの変換に左右されないように）
+    Select Case raw
+        Case "基礎単価コード":       TkHeadName = "コード": Exit Function
+        Case "代価表等コード番号":   TkHeadName = "代価表コード": Exit Function
+        Case "親施工単価コード番号": TkHeadName = "親コード": Exit Function
+        Case "親施工数量":           TkHeadName = "親数量": Exit Function
+        Case "集計区分名称":         TkHeadName = "区分名称": Exit Function
+        Case "集計区分":             TkHeadName = "区分": Exit Function
+        Case "特殊集計区分名称":     TkHeadName = "区分名称": Exit Function
+        Case "特殊集計区分":         TkHeadName = "区分": Exit Function
+        Case "名称":                 TkHeadName = "名称": Exit Function
+        Case "金額":                 TkHeadName = "金額": Exit Function
+        Case "単位":                 TkHeadName = "単位": Exit Function
+        Case "数量":                 TkHeadName = "数量": Exit Function
+    End Select
+
     t = NormText(s)
     If t = "" Then Exit Function
 
-    If InStr(1, t, "特殊集計") > 0 Or InStr(1, t, "集計区分") > 0 Then
+    If TkHas(t, "特殊集計") Or TkHas(t, "集計区分") Then
         ' 「集計区分」は番号、「集計区分名称」が名前。判定には名前を使う
-        If InStr(1, t, "名称") > 0 Then TkHeadName = "区分名称" Else TkHeadName = "区分"
+        If TkHas(t, "名称") Then TkHeadName = "区分名称" Else TkHeadName = "区分"
         Exit Function
     End If
-    If t = "区分" Then TkHeadName = "区分": Exit Function
-    If InStr(1, t, "代価表") > 0 Then TkHeadName = "代価表コード": Exit Function
-    If InStr(1, t, "親") > 0 Then
-        If InStr(1, t, "数量") > 0 Then
+    If t = NormText("区分") Then TkHeadName = "区分": Exit Function
+    If TkHas(t, "代価表") Then TkHeadName = "代価表コード": Exit Function
+    If TkHas(t, "親") Then
+        If TkHas(t, "数量") Then
             TkHeadName = "親数量"
-        ElseIf InStr(1, t, "コード") > 0 Then
+        ElseIf TkHas(t, "コード") Or TkHas(t, "単価") Then
             TkHeadName = "親コード"
         End If
         Exit Function
     End If
-    If InStr(1, t, "コード") > 0 Then TkHeadName = "コード": Exit Function
-    If InStr(1, t, "名称") > 0 Or InStr(1, t, "品名") > 0 Then TkHeadName = "名称": Exit Function
-    If InStr(1, t, "規格") > 0 Or InStr(1, t, "仕様") > 0 Then
-        If InStr(1, t, "2") > 0 Then TkHeadName = "規格2" Else TkHeadName = "規格1"
+    If TkHas(t, "コード") Then TkHeadName = "コード": Exit Function
+    If TkHas(t, "名称") Or TkHas(t, "品名") Then TkHeadName = "名称": Exit Function
+    If TkHas(t, "規格") Or TkHas(t, "仕様") Then
+        If TkHas(t, "2") Then TkHeadName = "規格2" Else TkHeadName = "規格1"
         Exit Function
     End If
-    If InStr(1, t, "単位") > 0 Then TkHeadName = "単位": Exit Function
-    If InStr(1, t, "数量") > 0 Then TkHeadName = "数量": Exit Function
-    If InStr(1, t, "金額") > 0 Then TkHeadName = "金額": Exit Function
-    If InStr(1, t, "単価") > 0 Then TkHeadName = "単価": Exit Function
-    If InStr(1, t, "摘要") > 0 Then TkHeadName = "摘要": Exit Function
+    If TkHas(t, "単位") Then TkHeadName = "単位": Exit Function
+    If TkHas(t, "数量") Then TkHeadName = "数量": Exit Function
+    If TkHas(t, "金額") Then TkHeadName = "金額": Exit Function
+    If TkHas(t, "単価") Then TkHeadName = "単価": Exit Function
+    If TkHas(t, "摘要") Then TkHeadName = "摘要": Exit Function
+End Function
+
+
+' NormText した文字列 t の中に語が入っているか（語も NormText して比べる）
+Private Function TkHas(ByVal t As String, ByVal word As String) As Boolean
+    Dim w As String
+    w = NormText(word)
+    If w = "" Then Exit Function
+    TkHas = (InStr(1, t, w) > 0)
 End Function
 
 
@@ -3172,9 +3233,15 @@ End Function
 ' 単位らしいか
 Private Function TkIsTaniish(ByVal s As String) As Boolean
     Dim t As String
+    Dim a As Variant, w As Variant
+
     t = NormText(s)
     If t = "" Or Len(t) > 4 Then Exit Function
-    If InStr(1, "|" & TK_TANI_LIST & "|", "|" & t & "|") > 0 Then TkIsTaniish = True
+
+    a = Split(TK_TANI_LIST, "|")
+    For Each w In a
+        If t = NormText(CStr(w)) Then TkIsTaniish = True: Exit Function
+    Next w
 End Function
 
 
@@ -3240,22 +3307,37 @@ End Function
 
 
 Private Function TkSpecName(ByVal s As String) As String
-    Select Case NormText(s)
-        Case "区分", "集計区分", "特殊集計区分":       TkSpecName = "区分"
-        Case "区分名称", "集計区分名称":                TkSpecName = "区分名称"
-        Case "コード", "基礎単価コード":                TkSpecName = "コード"
-        Case "名称":                                    TkSpecName = "名称"
-        Case "単位":                                    TkSpecName = "単位"
-        Case "規格", "規格1":                           TkSpecName = "規格1"
-        Case "規格2":                                   TkSpecName = "規格2"
-        Case "数量":                                    TkSpecName = "数量"
-        Case "金額":                                    TkSpecName = "金額"
-        Case "単価":                                    TkSpecName = "単価"
-        Case "摘要":                                    TkSpecName = "摘要"
-        Case "代価表コード", "代価表", "代価表等コード番号": TkSpecName = "代価表コード"
-        Case "親コード", "親施工単価コード番号":        TkSpecName = "親コード"
-        Case "親数量", "親施工数量":                    TkSpecName = "親数量"
-    End Select
+    Dim t As String
+    t = NormText(s)
+    If t = "" Then Exit Function
+
+    If t = NormText("区分") Or t = NormText("集計区分") Or t = NormText("特殊集計区分") Then
+        TkSpecName = "区分": Exit Function
+    End If
+    If t = NormText("区分名称") Or t = NormText("集計区分名称") Then
+        TkSpecName = "区分名称": Exit Function
+    End If
+    If t = NormText("コード") Or t = NormText("基礎単価コード") Then
+        TkSpecName = "コード": Exit Function
+    End If
+    If t = NormText("代価表コード") Or t = NormText("代価表") Or _
+       t = NormText("代価表等コード番号") Then
+        TkSpecName = "代価表コード": Exit Function
+    End If
+    If t = NormText("親コード") Or t = NormText("親施工単価コード番号") Then
+        TkSpecName = "親コード": Exit Function
+    End If
+    If t = NormText("親数量") Or t = NormText("親施工数量") Then
+        TkSpecName = "親数量": Exit Function
+    End If
+    If t = NormText("名称") Then TkSpecName = "名称": Exit Function
+    If t = NormText("単位") Then TkSpecName = "単位": Exit Function
+    If t = NormText("規格") Or t = NormText("規格1") Then TkSpecName = "規格1": Exit Function
+    If t = NormText("規格2") Then TkSpecName = "規格2": Exit Function
+    If t = NormText("数量") Then TkSpecName = "数量": Exit Function
+    If t = NormText("金額") Then TkSpecName = "金額": Exit Function
+    If t = NormText("単価") Then TkSpecName = "単価": Exit Function
+    If t = NormText("摘要") Then TkSpecName = "摘要": Exit Function
 End Function
 
 
