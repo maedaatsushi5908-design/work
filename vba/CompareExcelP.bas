@@ -3,7 +3,7 @@ Option Explicit
 
 '==========================================================
 ' 2つのExcelブックを比較するマクロ
-'  ・同じ名前のシート同士を比較
+'  ・各ブックで比較するシートを選択（シート名が違ってもよい）
 '  ・D/E/F/O列がすべて一致する行（行番号は違ってよい）を探し、
 '    その行どうしでP列が一致しているかを判定
 '  ・結果は新しいブックに一覧出力
@@ -19,64 +19,96 @@ Public Sub CompareTwoWorkbooks()
     Dim ws1 As Worksheet, ws2 As Worksheet
     Dim outRow As Long
     Dim cntOK As Long, cntNG As Long, cntNo1 As Long, cntNo2 As Long
+    Dim info1 As String, info2 As String
 
     path1 = Application.GetOpenFilename("Excelファイル,*.xls;*.xlsx;*.xlsm", , "1つ目のExcelを選択")
     If path1 = False Then Exit Sub
     path2 = Application.GetOpenFilename("Excelファイル,*.xls;*.xlsx;*.xlsm", , "2つ目のExcelを選択")
     If path2 = False Then Exit Sub
 
-    Application.ScreenUpdating = False
     Application.DisplayAlerts = False
-
     Set wb1 = Workbooks.Open(path1, ReadOnly:=True)
     Set wb2 = Workbooks.Open(path2, ReadOnly:=True)
+    Application.DisplayAlerts = True
+
+    ' 比較するシートをそれぞれ選択
+    Set ws1 = SelectSheet(wb1, "ブック1")
+    If ws1 Is Nothing Then GoTo Cleanup
+    Set ws2 = SelectSheet(wb2, "ブック2")
+    If ws2 Is Nothing Then GoTo Cleanup
+
+    info1 = wb1.Name & " [" & ws1.Name & "]"
+    info2 = wb2.Name & " [" & ws2.Name & "]"
+
+    Application.ScreenUpdating = False
 
     Set wbOut = Workbooks.Add
     Set wsOut = wbOut.Worksheets(1)
     wsOut.Name = "比較結果"
-    wsOut.Range("A1:L1").Value = Array("シート名", "判定", "ブック1 行", "ブック2 行", _
-        "D列", "E列", "F列", "O列", "ブック1 P列", "ブック2 P列", "備考", "")
+    wsOut.Range("A1:K1").Value = Array("シート名", "判定", "ブック1 行", "ブック2 行", _
+        "D列", "E列", "F列", "O列", "ブック1 P列", "ブック2 P列", "備考")
     outRow = 2
 
-    For Each ws1 In wb1.Worksheets
-        Set ws2 = Nothing
-        On Error Resume Next
-        Set ws2 = wb2.Worksheets(ws1.Name)
-        On Error GoTo 0
+    CompareSheets ws1, ws2, wsOut, outRow, cntOK, cntNG, cntNo1, cntNo2
 
-        If ws2 Is Nothing Then
-            wsOut.Cells(outRow, 1).Value = ws1.Name
-            wsOut.Cells(outRow, 2).Value = "シートなし"
-            wsOut.Cells(outRow, 11).Value = "ブック2に同名シートがありません"
-            outRow = outRow + 1
-        Else
-            CompareSheets ws1, ws2, wsOut, outRow, cntOK, cntNG, cntNo1, cntNo2
-        End If
-    Next ws1
-
-    wb1.Close SaveChanges:=False
-    wb2.Close SaveChanges:=False
-
-    ' 見た目の調整
     With wsOut
         .Range("A1:K1").Font.Bold = True
         .Range("A1:K1").Interior.Color = RGB(221, 235, 247)
         .Columns("A:K").AutoFit
         .Range("A1").AutoFilter
     End With
+
+Cleanup:
+    If Not wb2 Is wb1 Then wb2.Close SaveChanges:=False   ' 同じファイルを2回選んだ場合に備える
+    wb1.Close SaveChanges:=False
+    Application.ScreenUpdating = True
+    If wsOut Is Nothing Then Exit Sub
+
     wbOut.Activate
     wsOut.Range("A2").Select
     ActiveWindow.FreezePanes = True
 
-    Application.DisplayAlerts = True
-    Application.ScreenUpdating = True
-
     MsgBox "比較が完了しました。" & vbCrLf & _
+           "ブック1: " & info1 & vbCrLf & _
+           "ブック2: " & info2 & vbCrLf & vbCrLf & _
            "P列一致: " & cntOK & " 件" & vbCrLf & _
            "P列不一致: " & cntNG & " 件" & vbCrLf & _
            "ブック2に該当行なし: " & cntNo2 & " 件" & vbCrLf & _
            "ブック1に該当行なし: " & cntNo1 & " 件", vbInformation
 End Sub
+
+'----------------------------------------------------------
+' 比較するシートを選択させる
+' （シートタブをクリックしてそのシートのセルを選び、OKで決定）
+' シートが1枚だけのときは自動選択、キャンセル時は Nothing
+'----------------------------------------------------------
+Private Function SelectSheet(wb As Workbook, label As String) As Worksheet
+    Dim rng As Range
+
+    If wb.Worksheets.Count = 1 Then
+        Set SelectSheet = wb.Worksheets(1)
+        Exit Function
+    End If
+
+    wb.Activate
+    Do
+        Set rng = Nothing
+        On Error Resume Next
+        Set rng = Application.InputBox( _
+            label & "（" & wb.Name & "）で比較するシートのタブをクリックし、" & vbCrLf & _
+            "そのシートの任意のセルを選んで OK を押してください。", _
+            label & " のシート選択", ActiveCell.Address(External:=True), Type:=8)
+        On Error GoTo 0
+        If rng Is Nothing Then Exit Function              ' キャンセル
+
+        If rng.Worksheet.Parent Is wb Then
+            Set SelectSheet = rng.Worksheet
+            Exit Function
+        End If
+        MsgBox wb.Name & " のシートを選んでください。", vbExclamation
+        wb.Activate
+    Loop
+End Function
 
 '----------------------------------------------------------
 ' シート同士の比較
@@ -90,6 +122,9 @@ Private Sub CompareSheets(ws1 As Worksheet, ws2 As Worksheet, wsOut As Worksheet
     Dim r As Long, i As Long, key As String
     Dim rows2 As Collection, r2 As Variant
     Dim p1 As String, p2 As String
+    Dim sheetLabel As String
+
+    sheetLabel = ws1.Name & " / " & ws2.Name
 
     last1 = LastRow(ws1)
     last2 = LastRow(ws2)
@@ -123,7 +158,7 @@ Private Sub CompareSheets(ws1 As Worksheet, ws2 As Worksheet, wsOut As Worksheet
                     p1 = ToText(d1(r, 13))
                     For Each r2 In rows2
                         p2 = ToText(d2(r2, 13))
-                        WriteRow wsOut, outRow, ws1.Name, IIf(p1 = p2, "一致", "不一致"), _
+                        WriteRow wsOut, outRow, sheetLabel, IIf(p1 = p2, "一致", "不一致"), _
                                  r + START_ROW - 1, r2 + START_ROW - 1, d1, r, d1(r, 13), d2(r2, 13), _
                                  IIf(rows2.Count > 1, "ブック2に同キーが" & rows2.Count & "行あり", "")
                         If p1 = p2 Then
@@ -134,7 +169,7 @@ Private Sub CompareSheets(ws1 As Worksheet, ws2 As Worksheet, wsOut As Worksheet
                         End If
                     Next r2
                 Else
-                    WriteRow wsOut, outRow, ws1.Name, "ブック2になし", r + START_ROW - 1, "", _
+                    WriteRow wsOut, outRow, sheetLabel, "ブック2になし", r + START_ROW - 1, "", _
                              d1, r, d1(r, 13), "", "D/E/F/O列が一致する行がブック2にありません"
                     wsOut.Range(wsOut.Cells(outRow - 1, 1), wsOut.Cells(outRow - 1, 11)).Interior.Color = RGB(255, 235, 156)
                     cntNo2 = cntNo2 + 1
@@ -149,7 +184,7 @@ Private Sub CompareSheets(ws1 As Worksheet, ws2 As Worksheet, wsOut As Worksheet
             key = MakeKey(d2, i)
             If key <> "" Then
                 If Not used2.Exists(key) Then
-                    WriteRow wsOut, outRow, ws1.Name, "ブック1になし", "", i + START_ROW - 1, _
+                    WriteRow wsOut, outRow, sheetLabel, "ブック1になし", "", i + START_ROW - 1, _
                              d2, i, "", d2(i, 13), "D/E/F/O列が一致する行がブック1にありません"
                     wsOut.Range(wsOut.Cells(outRow - 1, 1), wsOut.Cells(outRow - 1, 11)).Interior.Color = RGB(255, 235, 156)
                     cntNo1 = cntNo1 + 1
