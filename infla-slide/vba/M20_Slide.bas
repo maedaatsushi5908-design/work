@@ -75,6 +75,9 @@ Private mKCfg As Object
 ' 新工種を自動判定するか
 Private mAutoShin As Boolean
 
+' 新単価が見つからず旧単価を据え置いた明細（印を付けるのに使う）
+Private mHeldOld() As Boolean
+
 ' 新工種を考慮するか（しないとき新工種の列・系列を出さない）
 Public gUseShin As Boolean
 
@@ -265,7 +268,8 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
     n = recOld.Count
     ReDim newTanka(1 To n)
-    warnText = MatchNewPrices(recOld, recNew, newTanka)
+    ReDim mHeldOld(1 To n)
+    warnText = MatchNewPrices(recOld, recNew, newTanka, mHeldOld)
 
     Set ws = FreshSheet(SH_SLIDE)
     Set gZList = New Collection
@@ -309,7 +313,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
         r = r + 1
         lvlNum = LevelNum(lvl)
-        WriteRow ws, r, rec, newTanka(i), lvlNum, lvl
+        WriteRow ws, r, rec, newTanka(i), lvlNum, lvl, mHeldOld(i)
         cnt = cnt + 1
         rowArr(cnt) = r
         lvlArr(cnt) = lvlNum
@@ -333,7 +337,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
             r = r + 1
             lvlNum = LevelNum(lvl)
-            WriteRow ws, r, rec, newTanka(i), lvlNum, lvl
+            WriteRow ws, r, rec, newTanka(i), lvlNum, lvl, mHeldOld(i)
 
             If lvl = "Z" Then
                 If curItem <> "" Then gZList.Add Array(curItem, curCode, curStart, r - 1)
@@ -437,13 +441,20 @@ End Sub
 ' 旧CSVの各行に対応する新単価を求める
 '--------------------------------------------------------------
 Private Function MatchNewPrices(ByVal recOld As Collection, ByVal recNew As Collection, _
-                                ByRef newTanka() As Double) As String
-    Dim i As Long, miss As Long
+                                ByRef newTanka() As Double, ByRef heldOld() As Boolean) As String
+    Dim i As Long, idx As Long
     Dim positional As Boolean
-    Dim d As Object
+    Dim dNew As Object, q As Collection
     Dim k As String
     Dim rec As Variant
+    Dim xOld As Long, xNew As Long
+    Dim miss As Long, zeroHold As Long
+    Dim msg As String
 
+    xOld = FirstHimokuIdx(recOld)
+    xNew = FirstHimokuIdx(recNew)
+
+    '--- 行数も並びも同じなら位置で突合する（いちばん確実）---
     positional = (recOld.Count = recNew.Count)
     If positional Then
         For i = 1 To recOld.Count
@@ -456,36 +467,105 @@ Private Function MatchNewPrices(ByVal recOld As Collection, ByVal recNew As Coll
 
     If positional Then
         For i = 1 To recOld.Count
-            rec = recNew(i)
-            newTanka(i) = CDbl(rec(R_TANKA))
+            newTanka(i) = CDbl(recNew(i)(R_TANKA))
         Next i
-        Exit Function
+    Else
+        '--- ずれているので、単価表部と内訳部を分けて、同じキーの出現順に突合する ---
+        '    Gコードの代価表は「単価表部の見出し行」と「内訳の参照行」で
+        '    コード・名称・規格・単位がまったく同じになる。
+        '    見出し行には単価が入っていないので、部を分けずに先着順で突合すると
+        '    内訳のGコード行の新単価が0になってしまう（空欄に見える）。
+        Set dNew = CreateObject("Scripting.Dictionary")
+        For i = 1 To recNew.Count
+            k = SectionKey(recNew(i), i, xNew)
+            If Not dNew.Exists(k) Then dNew.Add k, New Collection
+            Set q = dNew(k)
+            q.Add i
+        Next i
+
+        For i = 1 To recOld.Count
+            rec = recOld(i)
+            k = SectionKey(rec, i, xOld)
+            idx = 0
+            If dNew.Exists(k) Then
+                Set q = dNew(k)
+                If q.Count > 0 Then
+                    idx = CLng(q(1))
+                    q.Remove 1
+                End If
+            End If
+
+            If idx > 0 Then
+                newTanka(i) = CDbl(recNew(idx)(R_TANKA))
+            Else
+                newTanka(i) = CDbl(rec(R_TANKA))
+                If IsDetailLevel(CStr(rec(R_LEVEL))) And i >= xOld Then miss = miss + 1
+            End If
+        Next i
+
+        msg = "旧CSVと新CSVで行がずれていたため、単価表部と内訳部に分けて" & _
+              "コード・名称・規格・単位の出現順で突合しました。"
+        If miss > 0 Then
+            msg = msg & vbCrLf & "　新単価が見つからず旧単価を据え置いた明細：" & miss & " 行"
+        End If
     End If
 
-    Set d = CreateObject("Scripting.Dictionary")
-    For i = 1 To recNew.Count
-        rec = recNew(i)
-        k = RecKey(rec)
-        If Not d.Exists(k) Then d.Add k, CDbl(rec(R_TANKA))
-    Next i
-
+    '--- 新単価が0で旧単価が0でない明細は、旧単価を据え置いて印を付ける ---
+    '    0のままだとExcelのゼロ値非表示で空欄に見えて気付けないため
     For i = 1 To recOld.Count
         rec = recOld(i)
-        k = RecKey(rec)
-        If d.Exists(k) Then
-            newTanka(i) = d(k)
-        Else
-            newTanka(i) = CDbl(rec(R_TANKA))
-            If CStr(rec(R_LEVEL)) = "" Then miss = miss + 1
+        If IsDetailLevel(CStr(rec(R_LEVEL))) And i >= xOld Then
+            If newTanka(i) = 0 And CDbl(rec(R_TANKA)) <> 0 Then
+                newTanka(i) = CDbl(rec(R_TANKA))
+                heldOld(i) = True
+                zeroHold = zeroHold + 1
+            End If
         End If
     Next i
 
-    MatchNewPrices = "旧CSVと新CSVで行がずれていたため、名称・規格・単位で突合しました。" & vbCrLf & _
-                     "新単価が見つからず旧単価を据え置いた明細：" & miss & " 行"
+    If zeroHold > 0 Then
+        msg = msg & IIf(msg = "", "", vbCrLf) & _
+              "★ 新単価が0だったため旧単価を据え置いた明細：" & zeroHold & " 行" & vbCrLf & _
+              "　 J列を赤くし、摘要に「★新単価なし」と入れています。確認してください。"
+    End If
+
+    MatchNewPrices = msg
 End Function
 
 
-' 名称が「スクラップ」を含むか（全角／半角カタカナの差は NormText が吸収する）
+'--------------------------------------------------------------
+' X1000（本工事費）が何番目のレコードか。見つからなければ1
+'--------------------------------------------------------------
+Public Function FirstHimokuIdx(ByVal recs As Collection) As Long
+    Dim i As Long
+    For i = 1 To recs.Count
+        If CStr(recs(i)(R_LEVEL)) = "費目" Then
+            FirstHimokuIdx = i
+            Exit Function
+        End If
+    Next i
+    FirstHimokuIdx = 1
+End Function
+
+
+'--------------------------------------------------------------
+' 突合キーに「どの部か」を付ける
+'   T＝単価表部（X1000より前）／N＝内訳部・諸経費部（X1000以降）
+'--------------------------------------------------------------
+Private Function SectionKey(ByVal rec As Variant, ByVal idx As Long, _
+                            ByVal firstX As Long) As String
+    SectionKey = IIf(idx < firstX, "T|", "N|") & RecKey(rec)
+End Function
+
+
+'--------------------------------------------------------------
+' 明細行（単価と数量を持つ行）かどうか
+'--------------------------------------------------------------
+Public Function IsDetailLevel(ByVal lvl As String) As Boolean
+    IsDetailLevel = (LevelNum(lvl) = 9)
+End Function
+
+
 Public Function IsScrapName(ByVal s As String) As Boolean
     If s = "" Then Exit Function
     IsScrapName = (InStr(1, NormText(s), NormText("スクラップ")) > 0)
@@ -593,7 +673,8 @@ End Sub
 ' 明細1行
 '==============================================================
 Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Variant, _
-                     ByVal tankaNew As Double, ByVal lvlNum As Long, ByVal lvl As String)
+                     ByVal tankaNew As Double, ByVal lvlNum As Long, ByVal lvl As String, _
+                     ByVal heldOld As Boolean)
     ws.Cells(r, SC_CODE).Value = rec(R_CODE)
     ws.Cells(r, SC_TEKIYO).Value = rec(R_TEKIYO)
 
@@ -630,6 +711,11 @@ Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Varian
         ws.Cells(r, SC_Q_ALL).Value = rec(R_SURYO)
         ws.Cells(r, SC_TANI).Value = rec(R_TANI)
         WriteDetailFormulas ws, r
+        ' 新単価が見つからず旧単価を据え置いた行は目で分かるようにする
+        If heldOld Then
+            ws.Cells(r, SC_TANKA_N).Interior.Color = RGB(255, 199, 206)
+            ws.Cells(r, SC_TEKIYO).Value = Trim$(CStr(ws.Cells(r, SC_TEKIYO).Value) & " ★新単価なし")
+        End If
         ' 採用しなかった側の数量が0なら、この設計で追加された工種とみなす
         If mAutoShin Then
             If CDbl(rec(R_SURYO2)) = 0 And CDbl(rec(R_SURYO)) <> 0 Then
