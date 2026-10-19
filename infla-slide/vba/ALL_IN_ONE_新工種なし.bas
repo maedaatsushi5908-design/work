@@ -747,7 +747,9 @@ Public Sub 設定シート作成()
 
     PutHead ws, r, "【経費計算の設定】":                                                r = r + 1
     PutItem ws, r, "契約保証費", 0, "当初設計時の額で固定":                             r = r + 1
-    PutItem ws, r, "処分費控除率", 0.03, "③＝②－ROUNDDOWN((①－①'/2)×この率,0)":     r = r + 1
+    PutItem ws, r, "処分費控除率", 0.03, "③の全体＝②－ROUNDDOWN((①－①'/2)×この率,0)": r = r + 1
+    PutItem ws, r, "③の出来高・残工事", "按分", _
+            "按分／系列ごとに計算。按分＝全体の③を②の比で割り振る（出来高＋残工事＝全体になる）": r = r + 1
     PutItem ws, r, "消費税率", 0.1:                                                     r = r + 2
 
     PutHead ws, r, "【経費率の自動計算】", "スライド計算表の率欄の初期値。積算システムの値で上書きできます": r = r + 1
@@ -832,6 +834,8 @@ Public Function 設定シート更新() As Long
         "する／しない。CSVの金額をAA列（処分費額・全数量分）に入れます")
     added = added + AddIfMissing(ws, cfg, r, "契約保証費", 0, "当初設計時の額で固定")
     added = added + AddIfMissing(ws, cfg, r, "処分費控除率", 0.03, "")
+    added = added + AddIfMissing(ws, cfg, r, "③の出来高・残工事", "按分", _
+        "按分／系列ごとに計算。按分＝全体の③を②の比で割り振る")
     added = added + AddIfMissing(ws, cfg, r, "消費税率", 0.1, "")
     added = added + AddIfMissing(ws, cfg, r, "共通仮設費率A", 485.4, "")
     added = added + AddIfMissing(ws, cfg, r, "共通仮設費率B", -0.2231, "")
@@ -1474,8 +1478,10 @@ End Sub
 '==============================================================
 Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
                                    ByVal startRow As Long) As Long
-    Dim cols As Variant, shoCols As Variant, rateSrc As Variant
-    Dim i As Long, c As Long, r As Long, z As Long
+    Dim cols As Variant, shoCols As Variant, rateSrc As Variant, allSrc As Variant
+    Dim i As Long, c As Long, r As Long, z As Long, pc As Long
+    Dim anbun As Boolean
+    Dim kojoPct As String, taigaiNote As String
     Dim kojo As String, zei As String
     Dim zi As Variant
     Dim zRow1 As Long, zRow2 As Long
@@ -1495,11 +1501,18 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         shoCols = Array(SC_SA_ALL, SC_SA_DONE, SC_SA_REST, SC_SB_ALL, SC_SB_REST, SC_SN_ALL, SC_SN_DONE)
         ' 0＝自前の率（手入力可）／-1＝率なし（素材のみ）／1以上＝その系列番号の率を参照
         rateSrc = Array(0, 1, -1, 0, 4, 0, 6)
+        ' ③の按分で親にする「全体」の系列番号。自分と同じなら自分が全体
+        '   0前全体／1前出来形／2前残工事／3後全体／4後残工事／5新抜き全体／6新抜き出来形
+        allSrc = Array(0, 0, 0, 3, 3, 5, 5)
     Else
         cols = Array(SC_A_ALL, SC_A_DONE, SC_A_REST, SC_B_ALL, SC_B_REST)
         shoCols = Array(SC_SA_ALL, SC_SA_DONE, SC_SA_REST, SC_SB_ALL, SC_SB_REST)
         rateSrc = Array(0, 1, -1, 0, 4)
+        allSrc = Array(0, 0, 0, 3, 3)
     End If
+
+    ' ③の出来高・残工事を、全体の③から②の比で按分するか
+    anbun = (NormText(CStr(CfgVal(cfg, "③の出来高・残工事", "按分"))) = NormText("按分"))
 
     kojo = NumStr(CfgVal(cfg, "処分費控除率", 0.03))
     zei = NumStr(CfgVal(cfg, "消費税率", 0.1))
@@ -1517,7 +1530,14 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rDCHOKU = r:  KLabel ws, r, "①直接工事費":                                          r = r + 1
     rKANZAI = r:  KLabel ws, r, "①'水道工事における管材費":                             r = r + 1
     rSHOBUN = r:  KLabel ws, r, "②直接工事費内の処分費等　※スクラップは含みません（㉒へ）": r = r + 1
-    rTAIGAI = r:  KLabel ws, r, "③②のうち率計算の対象外費　※②－(①－①'/2)×3%":       r = r + 1
+    kojoPct = NumStr(ToNum(CStr(CfgVal(cfg, "処分費控除率", 0.03))) * 100)
+    If anbun Then
+        taigaiNote = "※全体＝②－(①－①'/2)×" & kojoPct & "%　／　" & _
+                     "出来高・残工事＝全体の③を②の比で按分（出来高＋残工事＝全体）"
+    Else
+        taigaiNote = "※②－(①－①'/2)×" & kojoPct & "%（系列ごとに計算）"
+    End If
+    rTAIGAI = r:  KLabel ws, r, "③②のうち率計算の対象外費　" & taigaiNote:              r = r + 1
 
     '--- Zコード項目を1行ずつ出す（区分は自動判定。R列で直せます）---
     ws.Cells(r, SC_HIMOKU).Value = "─ 諸経費部のZコード項目　※R列の区分は手直しできます　" & _
@@ -1585,8 +1605,17 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ws.Cells(rSHOBUN, c).Formula = "=SUMPRODUCT((" & KR(SC_TANKA_O, gDirectFirst, gDirectLast) & _
             "<>"""")*(" & KR(CLng(shoCols(i)), gDirectFirst, gDirectLast) & "))"
 
-        ws.Cells(rTAIGAI, c).Formula = "=MAX(0," & KC(rSHOBUN, c) & "-ROUNDDOWN((" & _
-            KC(rDCHOKU, c) & "-" & KC(rKANZAI, c) & "/2)*" & kojo & ",0))"
+        ' ③率計算の対象外費
+        If (Not anbun) Or CLng(allSrc(i)) = i Then
+            ' 全体の系列（または系列ごとに計算する設定のとき）
+            ws.Cells(rTAIGAI, c).Formula = "=MAX(0," & KC(rSHOBUN, c) & "-ROUNDDOWN((" & _
+                KC(rDCHOKU, c) & "-" & KC(rKANZAI, c) & "/2)*" & kojo & ",0))"
+        Else
+            ' 出来高・残工事は、全体の③を②の比で按分する
+            pc = CLng(cols(CLng(allSrc(i))))
+            ws.Cells(rTAIGAI, c).Formula = "=IF(" & KC(rSHOBUN, pc) & "=0,0,ROUNDDOWN(" & _
+                KC(rTAIGAI, pc) & "*" & KC(rSHOBUN, c) & "/" & KC(rSHOBUN, pc) & ",0))"
+        End If
 
         ' ④積上分 計 ＝ 区分「積」のZ項目の合計
         ws.Cells(rTSUMI, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
