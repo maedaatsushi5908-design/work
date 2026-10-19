@@ -175,8 +175,17 @@ Public Sub 設定シート作成()
     ws.Activate
     ws.Range("B4").Select
 
+    ' 使い方シートが無ければ一緒に作る（［使い方シート作成］で作り直せます）
+    If Not SheetExists(SH_HELP) Then
+        On Error Resume Next
+        BuildHelpSheet True
+        On Error GoTo 0
+        ThisWorkbook.Worksheets(SH_CONFIG).Activate
+    End If
+
     MsgBox "「" & SH_CONFIG & "」シートを作成しました。" & vbCrLf & _
-           "工事情報を入力してから［スライド計算表作成］を実行してください。", vbInformation
+           "工事情報を入力してから［スライド計算表作成］を実行してください。" & vbCrLf & vbCrLf & _
+           "操作の手順は「" & SH_HELP & "」シートにまとめてあります。", vbInformation
 End Sub
 
 
