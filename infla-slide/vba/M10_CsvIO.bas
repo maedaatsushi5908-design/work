@@ -173,7 +173,7 @@ Public Function ToNum(ByVal v As String) As Double
     t = Replace(t, " ", "")
     t = Replace(t, "　", "")
     t = Replace(t, "\", "")
-    t = Replace(t, "¥", "")
+    t = Replace(t, ChrW(&HA5), "")      ' 円記号 U+00A5。Shift-JISに無いのでコードから作る
     t = Replace(t, "円", "")
 
     If t = "" Or t = "-" Then Exit Function
@@ -186,6 +186,22 @@ End Function
 '--------------------------------------------------------------
 ' 突合キー用の正規化（前後空白・空白文字を除去し半角化）
 '--------------------------------------------------------------
+'--------------------------------------------------------------
+' 〇数字を作る
+'   21以降（U+3251〜）はShift-JISに無いので、VBAのモジュールに貼ると「?」に
+'   化けてしまう。文字そのものを書かず、コードから作る。
+'   セルの値はUnicodeなので、作ってから入れれば正しく表示される。
+'--------------------------------------------------------------
+Public Function Maru(ByVal n As Long) As String
+    Select Case n
+        Case 1 To 20:  Maru = ChrW(&H2460 + n - 1)      ' 1〜20（U+2460〜U+2473）
+        Case 21 To 35: Maru = ChrW(&H3251 + n - 21)     ' 21〜35（U+3251〜U+325F）
+        Case 36 To 50: Maru = ChrW(&H32B1 + n - 36)     ' 36〜50（U+32B1〜U+32BF）
+        Case Else:     Maru = "(" & n & ")"
+    End Select
+End Function
+
+
 Public Function NormText(ByVal s As String) As String
     Dim t As String
 

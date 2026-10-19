@@ -78,8 +78,24 @@ def build(outfile, useShin):
         if m: names.setdefault(m.group(1),[]).append(i)
     dup={k:v for k,v in names.items() if len(v)>1}
     cross = check_anbun(txt)
+    sjis = check_sjis(txt)
     print(f'{outfile}: {len(lines)} 行 / 手続き外宣言 {bad or "なし"} / 重複名 {dup or "なし"}'
-          f' / ③按分の旧新混在 {cross or "なし"}')
+          f' / ③按分の旧新混在 {cross or "なし"}'
+          f' / Shift-JISに無い文字 {sjis or "なし"}')
+
+
+# VBEに貼ると「?」に化ける文字（Shift-JIS=cp932 に無い文字）が残っていないか
+#   VBAのモジュールはANSIコードページで保存されるため、cp932 に無い文字は失われる。
+#   シートに出す文字は ChrW() でコードから作ること（Maru() など）。
+def check_sjis(txt):
+    bad = {}
+    for i, line in enumerate(txt.split('\n'), 1):
+        for ch in line:
+            try:
+                ch.encode('cp932')
+            except UnicodeEncodeError:
+                bad.setdefault(ch, []).append(i)
+    return [(ch, 'U+%04X' % ord(ch), len(v), v[:3]) for ch, v in bad.items()]
 
 
 # ③の按分で、旧単価の系列が新単価の系列を親にしていないか（またはその逆）を検査する

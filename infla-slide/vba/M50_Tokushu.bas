@@ -29,9 +29,6 @@
 '==============================================================
 Option Explicit
 
-' 単位らしさの判定に使う語彙（縦棒区切り）
-Private Const TK_TANI_LIST As String = "式|個|本|箇所|か所|ヶ所|カ所|枚|組|台|人|日|月|回|基|面|条|袋|缶|丁|冊|" & _
-    "m|m2|m3|㎡|㎥|ｍ|ｍ2|ｍ3|km|cm|mm|t|kg|g|L|l|ℓ|ha|a|人日|台日|日当|空m3|区間|社|戸|世帯|箇|ケ|個所"
 
 Public Const SH_TK_RESULT As String = "_特殊集計取込結果"
 Public Const SH_TK_CHECK  As String = "_特殊集計CSV構造"
@@ -1301,6 +1298,16 @@ End Function
 
 
 ' 単位らしいか
+' 単位らしさの判定に使う語彙（縦棒区切り）
+'   立方メートル記号 U+33A5 とリットル記号 U+2113 はShift-JISに無く、貼ると「?」に
+'   化けるのでコードから作る。Const では ChrW が使えないので関数にしている。
+Private Function TkTaniList() As String
+    TkTaniList = "式|個|本|箇所|か所|ヶ所|カ所|枚|組|台|人|日|月|回|基|面|条|袋|缶|丁|冊|" & _
+        "m|m2|m3|㎡|" & ChrW(&H33A5) & "|ｍ|ｍ2|ｍ3|km|cm|mm|t|kg|g|L|l|" & ChrW(&H2113) & _
+        "|ha|a|人日|台日|日当|空m3|区間|社|戸|世帯|箇|ケ|個所"
+End Function
+
+
 Private Function TkIsTaniish(ByVal s As String) As Boolean
     Dim t As String
     Dim a As Variant, w As Variant
@@ -1308,7 +1315,7 @@ Private Function TkIsTaniish(ByVal s As String) As Boolean
     t = NormText(s)
     If t = "" Or Len(t) > 4 Then Exit Function
 
-    a = Split(TK_TANI_LIST, "|")
+    a = Split(TkTaniList(), "|")
     For Each w In a
         If t = NormText(CStr(w)) Then TkIsTaniish = True: Exit Function
     Next w

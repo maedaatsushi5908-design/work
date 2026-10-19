@@ -5,7 +5,7 @@
 '
 ' 1枚の「スライド計算表」に
 '   ・明細（直接工事費部 ＋ 共通仮設費 積上げ部）
-'   ・経費計算（①直接工事費 〜 ㉔工事費）
+'   ・経費計算（①直接工事費 〜 (24)工事費）
 ' をまとめて作ります。
 '==============================================================
 Option Explicit
@@ -63,9 +63,9 @@ Public gZFirst      As Long     ' 共通仮設費 積上げ部の先頭行（0�
 Public gZLast       As Long     ' 　　　　　　　　　　最終行
 Public gZList       As Collection ' Zコード項目（Array(名称, コード, 先頭行, 最終行)）を出現順に
 Public gDetailLast  As Long     ' 明細の最終行
-Public gRowKakaku2  As Long     ' ㉑'工事価格（スクラップ込み）の行
-Public gRowZei      As Long     ' ㉓消費税相当額の行
-Public gRowKoujihi  As Long     ' ㉔工事費の行
+Public gRowKakaku2  As Long     ' (21)'工事価格（スクラップ込み）の行
+Public gRowZei      As Long     ' (23)消費税相当額の行
+Public gRowKoujihi  As Long     ' (24)工事費の行
 Public gLastRow     As Long
 
 ' 経費計算部の作業用
@@ -1071,7 +1071,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
 
     rDCHOKU = r:  KLabel ws, r, "①直接工事費":                                          r = r + 1
     rKANZAI = r:  KLabel ws, r, "①'水道工事における管材費":                             r = r + 1
-    rSHOBUN = r:  KLabel ws, r, "②直接工事費内の処分費等　※スクラップは含みません（㉒へ）": r = r + 1
+    rSHOBUN = r:  KLabel ws, r, "②直接工事費内の処分費等　※スクラップは含みません（" & Maru(22) & "へ）": r = r + 1
     kojoPct = NumStr(ToNum(CStr(CfgVal(cfg, "処分費控除率", 0.03))) * 100)
     If anbun Then
         taigaiNote = "※全体＝②－(①－①'/2)×" & kojoPct & "%　／　" & _
@@ -1083,7 +1083,8 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
 
     '--- Zコード項目を1行ずつ出す（区分は自動判定。R列で直せます）---
     ws.Cells(r, SC_HIMOKU).Value = "─ 諸経費部のZコード項目　※R列の区分は手直しできます　" & _
-        "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／ス＝スクラップ(㉒・売却益なのでマイナス)／空欄＝使わない ─"
+        "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／" & _
+        "ス＝スクラップ(" & Maru(22) & "・売却益なのでマイナス)／空欄＝使わない ─"
     With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .Font.Color = RGB(120, 120, 120)
@@ -1128,17 +1129,17 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rHASU = r:    KLabel ws, r, "⑲端数整理":                                            r = r + 1
     rIKEI = r:    KLabel ws, r, "⑳一般管理費【合計】（端数整理後）　※⑰－⑲":           r = r + 1
     rZKAK = r:    KLabel ws, r, "⑳'工事価格に加算するZ項目　※区分「価」の合計":          r = r + 1
-    rKAKAKU = r:  KLabel ws, r, "㉑工事価格　※⑬＋⑳＋⑳'":                               r = r + 1
-    rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」のZコード項目の合計（1000円単位に切捨）。売却益なのでマイナス": r = r + 1
-    gRowKakaku2 = r: KLabel ws, r, "㉑'工事価格（スクラップ込み）　※㉑＋㉒":             r = r + 1
-    gRowZei = r:     KLabel ws, r, "㉓消費税相当額　※(㉑＋㉒)×消費税率":                r = r + 1
-    gRowKoujihi = r: KLabel ws, r, "㉔工事費　※㉑＋㉒＋㉓":                              r = r + 1
+    rKAKAKU = r:  KLabel ws, r, Maru(21) & "工事価格　※⑬＋⑳＋⑳'":                               r = r + 1
+    rSCRAP = r:   KLabel ws, r, Maru(22) & "スクラップ　※区分「ス」のZコード項目の合計（1000円単位に切捨）。売却益なのでマイナス": r = r + 1
+    gRowKakaku2 = r: KLabel ws, r, Maru(21) & "'工事価格（スクラップ込み）　※" & Maru(21) & "＋" & Maru(22):             r = r + 1
+    gRowZei = r:     KLabel ws, r, Maru(23) & "消費税相当額　※(" & Maru(21) & "＋" & Maru(22) & ")×消費税率":                r = r + 1
+    gRowKoujihi = r: KLabel ws, r, Maru(24) & "工事費　※" & Maru(21) & "＋" & Maru(22) & "＋" & Maru(23):                              r = r + 1
 
     '--- 系列ごとに数式を入れる ---
     For i = 0 To UBound(cols)
         c = CLng(cols(i))
 
-        ' ①直接工事費（明細行のみ。スクラップ〇は㉒へまわす）
+        ' ①直接工事費（明細行のみ。スクラップ〇は(22)へまわす）
         ws.Cells(rDCHOKU, c).Formula = "=SUMPRODUCT((" & KR(SC_TANKA_O, gDirectFirst, gDirectLast) & _
             "<>"""")*(" & KR(c, gDirectFirst, gDirectLast) & "))"
 
@@ -1215,7 +1216,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ws.Cells(rIKEI, c).Formula = "=" & KC(rIKEI0, c) & "-" & KC(rHASU, c)
         ws.Cells(rKAKAKU, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI, c) & "+" & KC(rZKAK, c)
 
-        ' ㉒スクラップ ＝ 区分「ス」のZ項目。売却益なのでマイナスで入り、1000円単位に切り捨てる
+        ' (22)スクラップ ＝ 区分「ス」のZ項目。売却益なのでマイナスで入り、1000円単位に切り捨てる
         ws.Cells(rSCRAP, c).Formula = "=ROUNDDOWN(SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""ス"")*(" & KR(c, zRow1, zRow2) & ")),-3)"
 
@@ -1315,7 +1316,7 @@ End Function
 '   積 ＝ 共通仮設費の積上分（④へ）　　… Z0001〜Z0039
 '   原 ＝ 工事原価に加算（⑫'へ）　　　 … Z0040〜Z0044（工期延長等に伴う増加費用など）
 '   価 ＝ 工事価格に加算（⑳'へ）　　　 … Z0045以降（設計委託費など）
-'   ス ＝ スクラップ（㉒へ）　　　　　　… 名称に「スクラップ」
+'   ス ＝ スクラップ（(22)へ）　　　　　… 名称に「スクラップ」
 '   空 ＝ 使わない　　　　　　　　　　　… 支給品費（共通仮設費計から除く運用のため）
 ' R列で手直しできます。
 Private Function ZKubun(ByVal code As String, ByVal nm As String) As String

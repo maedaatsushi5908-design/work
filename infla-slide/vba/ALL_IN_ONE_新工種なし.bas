@@ -130,9 +130,9 @@ Public gZFirst      As Long     ' 共通仮設費 積上げ部の先頭行（0�
 Public gZLast       As Long     ' 　　　　　　　　　　最終行
 Public gZList       As Collection ' Zコード項目（Array(名称, コード, 先頭行, 最終行)）を出現順に
 Public gDetailLast  As Long     ' 明細の最終行
-Public gRowKakaku2  As Long     ' ㉑'工事価格（スクラップ込み）の行
-Public gRowZei      As Long     ' ㉓消費税相当額の行
-Public gRowKoujihi  As Long     ' ㉔工事費の行
+Public gRowKakaku2  As Long     ' (21)'工事価格（スクラップ込み）の行
+Public gRowZei      As Long     ' (23)消費税相当額の行
+Public gRowKoujihi  As Long     ' (24)工事費の行
 Public gLastRow     As Long
 
 ' 経費計算部の作業用
@@ -162,9 +162,6 @@ Public gUseShin As Boolean
 Public Const SH_CHOSHO As String = "スライド調書（様式4-2号）"
 
 '--- M50_Tokushu の宣言 ---
-Private Const TK_TANI_LIST As String = "式|個|本|箇所|か所|ヶ所|カ所|枚|組|台|人|日|月|回|基|面|条|袋|缶|丁|冊|" & _
-    "m|m2|m3|㎡|㎥|ｍ|ｍ2|ｍ3|km|cm|mm|t|kg|g|L|l|ℓ|ha|a|人日|台日|日当|空m3|区間|社|戸|世帯|箇|ケ|個所"
-
 Public Const SH_TK_RESULT As String = "_特殊集計取込結果"
 Public Const SH_TK_CHECK  As String = "_特殊集計CSV構造"
 
@@ -665,7 +662,7 @@ Public Function ToNum(ByVal v As String) As Double
     t = Replace(t, " ", "")
     t = Replace(t, "　", "")
     t = Replace(t, "\", "")
-    t = Replace(t, "¥", "")
+    t = Replace(t, ChrW(&HA5), "")      ' 円記号 U+00A5。Shift-JISに無いのでコードから作る
     t = Replace(t, "円", "")
 
     If t = "" Or t = "-" Then Exit Function
@@ -678,6 +675,22 @@ End Function
 '--------------------------------------------------------------
 ' 突合キー用の正規化（前後空白・空白文字を除去し半角化）
 '--------------------------------------------------------------
+'--------------------------------------------------------------
+' 〇数字を作る
+'   21以降（U+3251〜）はShift-JISに無いので、VBAのモジュールに貼ると「?」に
+'   化けてしまう。文字そのものを書かず、コードから作る。
+'   セルの値はUnicodeなので、作ってから入れれば正しく表示される。
+'--------------------------------------------------------------
+Public Function Maru(ByVal n As Long) As String
+    Select Case n
+        Case 1 To 20:  Maru = ChrW(&H2460 + n - 1)      ' 1〜20（U+2460〜U+2473）
+        Case 21 To 35: Maru = ChrW(&H3251 + n - 21)     ' 21〜35（U+3251〜U+325F）
+        Case 36 To 50: Maru = ChrW(&H32B1 + n - 36)     ' 36〜50（U+32B1〜U+32BF）
+        Case Else:     Maru = "(" & n & ")"
+    End Select
+End Function
+
+
 Public Function NormText(ByVal s As String) As String
     Dim t As String
 
@@ -1696,7 +1709,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
 
     rDCHOKU = r:  KLabel ws, r, "①直接工事費":                                          r = r + 1
     rKANZAI = r:  KLabel ws, r, "①'水道工事における管材費":                             r = r + 1
-    rSHOBUN = r:  KLabel ws, r, "②直接工事費内の処分費等　※スクラップは含みません（㉒へ）": r = r + 1
+    rSHOBUN = r:  KLabel ws, r, "②直接工事費内の処分費等　※スクラップは含みません（" & Maru(22) & "へ）": r = r + 1
     kojoPct = NumStr(ToNum(CStr(CfgVal(cfg, "処分費控除率", 0.03))) * 100)
     If anbun Then
         taigaiNote = "※全体＝②－(①－①'/2)×" & kojoPct & "%　／　" & _
@@ -1708,7 +1721,8 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
 
     '--- Zコード項目を1行ずつ出す（区分は自動判定。R列で直せます）---
     ws.Cells(r, SC_HIMOKU).Value = "─ 諸経費部のZコード項目　※R列の区分は手直しできます　" & _
-        "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／ス＝スクラップ(㉒・売却益なのでマイナス)／空欄＝使わない ─"
+        "積＝共通仮設費の積上分(④)／原＝工事原価に加算(⑫')／価＝工事価格に加算(⑳')／" & _
+        "ス＝スクラップ(" & Maru(22) & "・売却益なのでマイナス)／空欄＝使わない ─"
     With ws.Range(ws.Cells(r, SC_HIMOKU), ws.Cells(r, SC_ZKUBUN))
         .Merge
         .Font.Color = RGB(120, 120, 120)
@@ -1753,17 +1767,17 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rHASU = r:    KLabel ws, r, "⑲端数整理":                                            r = r + 1
     rIKEI = r:    KLabel ws, r, "⑳一般管理費【合計】（端数整理後）　※⑰－⑲":           r = r + 1
     rZKAK = r:    KLabel ws, r, "⑳'工事価格に加算するZ項目　※区分「価」の合計":          r = r + 1
-    rKAKAKU = r:  KLabel ws, r, "㉑工事価格　※⑬＋⑳＋⑳'":                               r = r + 1
-    rSCRAP = r:   KLabel ws, r, "㉒スクラップ　※区分「ス」のZコード項目の合計（1000円単位に切捨）。売却益なのでマイナス": r = r + 1
-    gRowKakaku2 = r: KLabel ws, r, "㉑'工事価格（スクラップ込み）　※㉑＋㉒":             r = r + 1
-    gRowZei = r:     KLabel ws, r, "㉓消費税相当額　※(㉑＋㉒)×消費税率":                r = r + 1
-    gRowKoujihi = r: KLabel ws, r, "㉔工事費　※㉑＋㉒＋㉓":                              r = r + 1
+    rKAKAKU = r:  KLabel ws, r, Maru(21) & "工事価格　※⑬＋⑳＋⑳'":                               r = r + 1
+    rSCRAP = r:   KLabel ws, r, Maru(22) & "スクラップ　※区分「ス」のZコード項目の合計（1000円単位に切捨）。売却益なのでマイナス": r = r + 1
+    gRowKakaku2 = r: KLabel ws, r, Maru(21) & "'工事価格（スクラップ込み）　※" & Maru(21) & "＋" & Maru(22):             r = r + 1
+    gRowZei = r:     KLabel ws, r, Maru(23) & "消費税相当額　※(" & Maru(21) & "＋" & Maru(22) & ")×消費税率":                r = r + 1
+    gRowKoujihi = r: KLabel ws, r, Maru(24) & "工事費　※" & Maru(21) & "＋" & Maru(22) & "＋" & Maru(23):                              r = r + 1
 
     '--- 系列ごとに数式を入れる ---
     For i = 0 To UBound(cols)
         c = CLng(cols(i))
 
-        ' ①直接工事費（明細行のみ。スクラップ〇は㉒へまわす）
+        ' ①直接工事費（明細行のみ。スクラップ〇は(22)へまわす）
         ws.Cells(rDCHOKU, c).Formula = "=SUMPRODUCT((" & KR(SC_TANKA_O, gDirectFirst, gDirectLast) & _
             "<>"""")*(" & KR(c, gDirectFirst, gDirectLast) & "))"
 
@@ -1840,7 +1854,7 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ws.Cells(rIKEI, c).Formula = "=" & KC(rIKEI0, c) & "-" & KC(rHASU, c)
         ws.Cells(rKAKAKU, c).Formula = "=" & KC(rGENKA, c) & "+" & KC(rIKEI, c) & "+" & KC(rZKAK, c)
 
-        ' ㉒スクラップ ＝ 区分「ス」のZ項目。売却益なのでマイナスで入り、1000円単位に切り捨てる
+        ' (22)スクラップ ＝ 区分「ス」のZ項目。売却益なのでマイナスで入り、1000円単位に切り捨てる
         ws.Cells(rSCRAP, c).Formula = "=ROUNDDOWN(SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""ス"")*(" & KR(c, zRow1, zRow2) & ")),-3)"
 
@@ -1940,7 +1954,7 @@ End Function
 '   積 ＝ 共通仮設費の積上分（④へ）　　… Z0001〜Z0039
 '   原 ＝ 工事原価に加算（⑫'へ）　　　 … Z0040〜Z0044（工期延長等に伴う増加費用など）
 '   価 ＝ 工事価格に加算（⑳'へ）　　　 … Z0045以降（設計委託費など）
-'   ス ＝ スクラップ（㉒へ）　　　　　　… 名称に「スクラップ」
+'   ス ＝ スクラップ（(22)へ）　　　　　… 名称に「スクラップ」
 '   空 ＝ 使わない　　　　　　　　　　　… 支給品費（共通仮設費計から除く運用のため）
 ' R列で手直しできます。
 Private Function ZKubun(ByVal code As String, ByVal nm As String) As String
@@ -3530,6 +3544,16 @@ End Function
 
 
 ' 単位らしいか
+' 単位らしさの判定に使う語彙（縦棒区切り）
+'   立方メートル記号 U+33A5 とリットル記号 U+2113 はShift-JISに無く、貼ると「?」に
+'   化けるのでコードから作る。Const では ChrW が使えないので関数にしている。
+Private Function TkTaniList() As String
+    TkTaniList = "式|個|本|箇所|か所|ヶ所|カ所|枚|組|台|人|日|月|回|基|面|条|袋|缶|丁|冊|" & _
+        "m|m2|m3|㎡|" & ChrW(&H33A5) & "|ｍ|ｍ2|ｍ3|km|cm|mm|t|kg|g|L|l|" & ChrW(&H2113) & _
+        "|ha|a|人日|台日|日当|空m3|区間|社|戸|世帯|箇|ケ|個所"
+End Function
+
+
 Private Function TkIsTaniish(ByVal s As String) As Boolean
     Dim t As String
     Dim a As Variant, w As Variant
@@ -3537,7 +3561,7 @@ Private Function TkIsTaniish(ByVal s As String) As Boolean
     t = NormText(s)
     If t = "" Or Len(t) > 4 Then Exit Function
 
-    a = Split(TK_TANI_LIST, "|")
+    a = Split(TkTaniList(), "|")
     For Each w In a
         If t = NormText(CStr(w)) Then TkIsTaniish = True: Exit Function
     Next w
@@ -3785,7 +3809,7 @@ Private Sub WriteHelpSteps()
     HRow "2", "「【新単価】…」→ 新単価CSVを選ぶ"
     HBlank
     HHead2 "できるシート", "中身"
-    HRow "スライド計算表", "明細部＋経費計算部（①〜㉔を7系列）"
+    HRow "スライド計算表", "明細部＋経費計算部（①〜" & Maru(24) & "を7系列）"
     HRow "スライド調書（様式4-2号）", "計算表からリンク。G16がスライド額"
     HRow "_単価表（非表示）", "代価表の中身の索引。手順4で使います"
     HP "実行後にメッセージが出ます。★が付いた件数があれば必ず確認してください" & _
@@ -3806,7 +3830,7 @@ Private Sub WriteHelpSteps()
     HRow "水道工事における管財費", "P列に〇"
     HRow "特殊集計区分外", "何も入れません"
     HBlank
-    HWarn "スクラップには処分費の〇を付けません。売却益なので処分費ではなく、㉒で別に扱います。"
+    HWarn "スクラップには処分費の〇を付けません。売却益なので処分費ではなく、" & Maru(22) & "で別に扱います。"
     HWarn "金額の列が空だった行は赤字で出ます。AA列を必ず手入力してください。" & _
           "空のままだとその行の金額を全額 処分費として扱い、過大になります。"
     HP "突合できなかった行には、さがしたコードがそのまま出ます。" & _
@@ -3864,8 +3888,8 @@ Private Sub WriteHelpInputs()
     HHead3 "区分", "意味", "自動判定"
     HRow3 "積", "共通仮設費の積上分（運搬費・準備費・技術管理費など）。④に算入", "Z0001〜Z0039"
     HRow3 "原", "⑬工事原価に加算（工期延長等に伴う増加費用など）", "Z0040〜Z0044"
-    HRow3 "価", "㉑工事価格に加算（設計委託費など）", "Z0045 以降"
-    HRow3 "ス", "スクラップ。㉒に算入（1000円単位に切捨）", "名称に「スクラップ」を含む"
+    HRow3 "価", Maru(21) & "工事価格に加算（設計委託費など）", "Z0045 以降"
+    HRow3 "ス", "スクラップ。" & Maru(22) & "に算入（1000円単位に切捨）", "名称に「スクラップ」を含む"
     HRow3 "空欄", "計算に使わない", "支給品費"
     HP "課の運用と違う場合はR列を直してください。全系列（S〜Y列）に一度に効きます。"
     HBlank
@@ -3897,7 +3921,7 @@ Private Sub WriteHelpSheetMap()
           "AC〜AI   処分費額（7系列）" & vbLf & vbLf & _
           "★＝手入力　☆＝自動（修正可）"
     HP "明細部は8行目から。Zコードより前の行がすべて直接工事費です。" & _
-       "そのすぐ下が経費計算部で、①〜③ → Zコード項目を1行ずつ → ④〜㉔ を7系列で計算します。" & vbLf & _
+       "そのすぐ下が経費計算部で、①〜③ → Zコード項目を1行ずつ → ④〜" & Maru(24) & " を7系列で計算します。" & vbLf & _
        "背景色は階層のレベルです。濃い青＝費目、薄い青＝工事区分、以下同様。"
     HBlank
 
@@ -4086,7 +4110,7 @@ Private Sub WriteHelpTrouble()
          "経費計算部の⑦⑪⑮を直接上書きするか、設定シートの係数を変えてください"
     HRow "工事費が金入設計書と合わない", _
          "経費率を積算システムの値で上書き。" & _
-         "それでも合わなければ⑯契約保証費・㉒スクラップ・端数整理を確認"
+         "それでも合わなければ⑯契約保証費・" & Maru(22) & "スクラップ・端数整理を確認"
     HRow "③の出来高・残工事が元の経費計算シートと違う", _
          "既定を按分にしています。元に戻すには設定シートの「③の出来高・残工事」を" & _
          "「系列ごとに計算」に"
