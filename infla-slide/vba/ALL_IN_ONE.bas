@@ -755,7 +755,8 @@ Public Sub 設定シート作成()
             "する／しない。するとCSVの金額をAA列（処分費額・全数量分）に入れます":          r = r + 2
 
     PutHead ws, r, "【経費計算の設定】":                                                r = r + 1
-    PutItem ws, r, "契約保証費", 0, "当初設計時の額で固定":                             r = r + 1
+    PutItem ws, r, "契約保証費", 0, _
+            "当初設計時の額で固定。出来高に乗せ、残工事は0（出来高が0のときだけ残工事に乗ります）": r = r + 1
     PutItem ws, r, "処分費控除率", 0.03, "③の全体＝②－ROUNDDOWN((①－①'/2)×この率,0)": r = r + 1
     PutItem ws, r, "③の出来高・残工事", "按分", _
             "按分／系列ごとに計算。按分＝全体の③を②の比で割り振る（出来高＋残工事＝全体になる）": r = r + 1
@@ -841,7 +842,8 @@ Public Function 設定シート更新() As Long
         "同じくP列の〇にします")
     added = added + AddIfMissing(ws, cfg, r, "特殊集計CSVから処分費額も入れる", "する", _
         "する／しない。CSVの金額をAA列（処分費額・全数量分）に入れます")
-    added = added + AddIfMissing(ws, cfg, r, "契約保証費", 0, "当初設計時の額で固定")
+    added = added + AddIfMissing(ws, cfg, r, "契約保証費", 0, _
+        "当初設計時の額で固定。出来高に乗せ、残工事は0（出来高が0のときだけ残工事に乗ります）")
     added = added + AddIfMissing(ws, cfg, r, "処分費控除率", 0.03, "")
     added = added + AddIfMissing(ws, cfg, r, "③の出来高・残工事", "按分", _
         "按分／系列ごとに計算。按分＝全体の③を②の比で割り振る")
@@ -1355,7 +1357,7 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(3, SC_A_ALL).Value = "スライド前（旧単価）"
     ws.Cells(5, SC_A_ALL).Value = "全体"
     ws.Cells(5, SC_A_DONE).Value = "出来形"
-    ws.Cells(5, SC_A_REST).Value = "残工事"
+    ws.Cells(5, SC_A_REST).Value = "残工事" & vbLf & "（検算用）"
     ws.Cells(3, SC_B_ALL).Value = "スライド後（出来形＝旧単価／残工事＝新単価）"
     ws.Cells(5, SC_B_ALL).Value = "全体" & vbLf & "＝出来形＋残工事"
     ws.Cells(5, SC_B_REST).Value = "残工事" & vbLf & "（新単価）"
@@ -1609,7 +1611,9 @@ End Sub
 Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
                                    ByVal startRow As Long) As Long
     Dim cols As Variant, shoCols As Variant, rateSrc As Variant, allSrc As Variant
-    Dim i As Long, c As Long, r As Long, z As Long, pc As Long
+    Dim serKind As Variant, doneSrc As Variant
+    Dim i As Long, c As Long, r As Long, z As Long, pc As Long, dc As Long, ac As Long
+    Dim hoshoVal As String
     Dim anbun As Boolean
     Dim kojoPct As String, taigaiNote As String
     Dim kojo As String, zei As String
@@ -1634,11 +1638,18 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ' ③の按分で親にする「全体」の系列番号。自分と同じなら自分が全体
         '   0前全体／1前出来形／2前残工事／3後全体／4後残工事／5新抜き全体／6新抜き出来形
         allSrc = Array(0, 0, 0, 3, 3, 5, 5)
+        ' 系列の種類。0＝全体／1＝出来高／2＝残工事（⑯契約保証費の置き方に使う）
+        serKind = Array(0, 1, 2, 0, 2, 0, 1)
+        ' その系列の「出来高」にあたる系列番号。出来高が0かどうかの判定に使う
+        '   スライド後の出来高も旧単価のT（前・出来形）なので、V・Wも1を見る
+        doneSrc = Array(1, 1, 1, 1, 1, 6, 6)
     Else
         cols = Array(SC_A_ALL, SC_A_DONE, SC_A_REST, SC_B_ALL, SC_B_REST)
         shoCols = Array(SC_SA_ALL, SC_SA_DONE, SC_SA_REST, SC_SB_ALL, SC_SB_REST)
         rateSrc = Array(0, 1, -1, 0, 4)
         allSrc = Array(0, 0, 0, 3, 3)
+        serKind = Array(0, 1, 2, 0, 2)
+        doneSrc = Array(1, 1, 1, 1, 1)
     End If
 
     ' ③の出来高・残工事を、全体の③から②の比で按分するか
@@ -1709,7 +1720,8 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
     rITAISHO = r: KLabel ws, r, "⑭一般管理費対象額　※⑬－③":                           r = r + 1
     rIRITSU = r:  KLabel ws, r, "⑮一般管理費率":                                        r = r + 1
     rIBUN = r:    KLabel ws, r, "⑮'一般管理費率分　※⑭×⑮":                            r = r + 1
-    rHOSHO = r:   KLabel ws, r, "⑯契約保証費　※当初設計時額で固定":                     r = r + 1
+    rHOSHO = r:   KLabel ws, r, "⑯契約保証費　※当初設計時額で固定。" & _
+        "全体は手入力（黄色）。出来高に乗せ、残工事は0。出来高が0のときだけ残工事に乗せます": r = r + 1
     rIKEI0 = r:   KLabel ws, r, "⑰一般管理費【合計】（端数整理前）　※⑮'＋⑯":          r = r + 1
     rKAKAKU0 = r: KLabel ws, r, "⑱工事価格（端数整理前）　※⑬＋⑰":                      r = r + 1
     rHASU = r:    KLabel ws, r, "⑲端数整理":                                            r = r + 1
@@ -1776,8 +1788,24 @@ Private Function BuildKeihiSection(ByVal ws As Worksheet, ByVal cfg As Object, _
         ws.Cells(rITAISHO, c).Formula = "=" & KC(rGENKA, c) & "-" & KC(rTAIGAI, c)
         KRate ws, rIRITSU, c, CLng(rateSrc(i)), cols, RateIppan(KC(rITAISHO, c))
         ws.Cells(rIBUN, c).Formula = "=" & KC(rITAISHO, c) & "*" & KC(rIRITSU, c)
-        ws.Cells(rHOSHO, c).Value = CDbl(CfgVal(cfg, "契約保証費", 0))
-        ws.Cells(rHOSHO, c).Interior.Color = CLR_INPUT
+        ' ⑯契約保証費
+        '   契約保証費は請負契約に1回だけ付くので、出来高の側に乗せる。
+        '   残工事は0。ただし出来高が0（まだ何も出来ていない）ときだけ残工事に乗せる。
+        '   こうしないと、様式4-2号のP1'（引き算で出す）とP2'（残工事から出す）で
+        '   契約保証費の扱いがそろわず、スライド額が契約保証費の分ずれる。
+        dc = CLng(cols(CLng(doneSrc(i))))        ' 出来高にあたる系列の列
+        ac = CLng(cols(CLng(allSrc(i))))         ' 全体にあたる系列の列
+        Select Case CLng(serKind(i))
+            Case 1      ' 出来高の系列
+                ws.Cells(rHOSHO, c).Formula = "=IF(" & KC(rDCHOKU, dc) & "=0,0," & _
+                    KC(rHOSHO, ac) & ")"
+            Case 2      ' 残工事の系列
+                ws.Cells(rHOSHO, c).Formula = "=IF(" & KC(rDCHOKU, dc) & "=0," & _
+                    KC(rHOSHO, ac) & ",0)"
+            Case Else   ' 全体の系列（手入力）
+                ws.Cells(rHOSHO, c).Value = CDbl(CfgVal(cfg, "契約保証費", 0))
+                ws.Cells(rHOSHO, c).Interior.Color = CLR_INPUT
+        End Select
         ws.Cells(rIKEI0, c).Formula = "=" & KC(rIBUN, c) & "+" & KC(rHOSHO, c)
         ws.Cells(rZKAK, c).Formula = "=SUMPRODUCT((" & KR(SC_ZKUBUN, zRow1, zRow2) & _
             "=""価"")*(" & KR(c, zRow1, zRow2) & "))"
