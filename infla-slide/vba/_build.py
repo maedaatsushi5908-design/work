@@ -75,7 +75,37 @@ def build(outfile, useShin):
         m=re.match(r'^\s*(?:Public |Private |Friend )?(?:Static )?(?:Sub|Function)\s+([^\s(]+)', l)
         if m: names.setdefault(m.group(1),[]).append(i)
     dup={k:v for k,v in names.items() if len(v)>1}
-    print(f'{outfile}: {len(lines)} 行 / 手続き外宣言 {bad or "なし"} / 重複名 {dup or "なし"}')
+    cross = check_anbun(txt)
+    print(f'{outfile}: {len(lines)} 行 / 手続き外宣言 {bad or "なし"} / 重複名 {dup or "なし"}'
+          f' / ③按分の旧新混在 {cross or "なし"}')
+
+
+# ③の按分で、旧単価の系列が新単価の系列を親にしていないか（またはその逆）を検査する
+#   cols と allSrc は位置で対応しているので、系列を足したときに崩しやすい
+def check_anbun(txt):
+    KIND = {'SC_A_ALL':'旧','SC_A_DONE':'旧','SC_A_REST':'旧',
+            'SC_B_ALL':'新','SC_B_REST':'新',
+            'SC_N_ALL':'旧','SC_N_DONE':'旧'}   # 新工種抜きは SC_A_* がもと＝旧単価
+    bad = []
+    pat = re.compile(r'cols = Array\(([^)]*)\)[\s\S]*?allSrc = Array\(([^)]*)\)')
+    found = 0
+    for m in pat.finditer(txt):
+        found += 1
+        cols = [x.strip() for x in m.group(1).split(',')]
+        src = [int(x) for x in m.group(2).split(',')]
+        if len(cols) != len(src):
+            bad.append(('長さ不一致', len(cols), len(src)))
+            continue
+        for i, (c, p) in enumerate(zip(cols, src)):
+            if p == i:
+                continue
+            if not (0 <= p < len(cols)):
+                bad.append(('親が範囲外', c, p))
+            elif KIND.get(c) != KIND.get(cols[p]):
+                bad.append((c, KIND.get(c), '->', cols[p], KIND.get(cols[p])))
+    if found == 0:
+        bad.append(('cols/allSrc が見つからない',))
+    return bad
 
 build('ALL_IN_ONE.bas', True)
 build('ALL_IN_ONE_新工種なし.bas', False)
