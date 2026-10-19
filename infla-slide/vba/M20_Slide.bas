@@ -75,8 +75,18 @@ Private mKCfg As Object
 ' 新工種を自動判定するか
 Private mAutoShin As Boolean
 
-' 新単価が見つからず旧単価を据え置いた明細（印を付けるのに使う）
-Private mHeldOld() As Boolean
+' 新単価をどうやって突合したか（印を付けるのに使う）
+Private mMatchLvl() As Long
+
+' 突合のしかた。数が大きいほど条件がゆるい
+Public Const ML_NONE As Long = 0    ' 突合できず（旧単価を据置）
+Public Const ML_POS  As Long = 1    ' 全体を行の位置で
+Public Const ML_SECT As Long = 2    ' 部ごとに行の位置で
+Public Const ML_KEY1 As Long = 3    ' コード＋名称＋規格＋単位
+Public Const ML_KEY2 As Long = 4    ' コード＋名称＋単位
+Public Const ML_KEY3 As Long = 5    ' コード＋名称
+Public Const ML_KEY4 As Long = 6    ' コードだけ
+Public Const ML_ZERO As Long = 7    ' 新単価が0だった（旧単価を据置）
 
 ' 新工種を考慮するか（しないとき新工種の列・系列を出さない）
 Public gUseShin As Boolean
@@ -272,8 +282,8 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
     n = recOld.Count
     ReDim newTanka(1 To n)
-    ReDim mHeldOld(1 To n)
-    warnText = MatchNewPrices(recOld, recNew, newTanka, mHeldOld)
+    ReDim mMatchLvl(1 To n)
+    warnText = MatchNewPrices(recOld, recNew, newTanka, mMatchLvl)
 
     Set ws = FreshSheet(SH_SLIDE)
     Set gZList = New Collection
@@ -317,7 +327,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
         r = r + 1
         lvlNum = LevelNum(lvl)
-        WriteRow ws, r, rec, newTanka(i), lvlNum, lvl, mHeldOld(i)
+        WriteRow ws, r, rec, newTanka(i), lvlNum, lvl, mMatchLvl(i)
         cnt = cnt + 1
         rowArr(cnt) = r
         lvlArr(cnt) = lvlNum
@@ -341,7 +351,7 @@ Public Function BuildSlideSheet(ByVal cfg As Object, ByVal recOld As Collection,
 
             r = r + 1
             lvlNum = LevelNum(lvl)
-            WriteRow ws, r, rec, newTanka(i), lvlNum, lvl, mHeldOld(i)
+            WriteRow ws, r, rec, newTanka(i), lvlNum, lvl, mMatchLvl(i)
 
             If lvl = "Z" Then
                 If curItem <> "" Then gZList.Add Array(curItem, curCode, curStart, r - 1)
@@ -445,20 +455,21 @@ End Sub
 ' 旧CSVの各行に対応する新単価を求める
 '--------------------------------------------------------------
 Private Function MatchNewPrices(ByVal recOld As Collection, ByVal recNew As Collection, _
-                                ByRef newTanka() As Double, ByRef heldOld() As Boolean) As String
-    Dim i As Long, idx As Long
-    Dim positional As Boolean
-    Dim dNew As Object, q As Collection
-    Dim k As String
-    Dim rec As Variant
+                                ByRef newTanka() As Double, ByRef lvlArr() As Long) As String
+    Dim i As Long
+    Dim usedNew() As Boolean
     Dim xOld As Long, xNew As Long
-    Dim miss As Long, zeroHold As Long
+    Dim nMiss As Long, nLoose As Long, nZero As Long
+    Dim positional As Boolean
     Dim msg As String
+
+    If recOld.Count = 0 Then Exit Function
 
     xOld = FirstHimokuIdx(recOld)
     xNew = FirstHimokuIdx(recNew)
+    ReDim usedNew(1 To IIf(recNew.Count > 0, recNew.Count, 1))
 
-    '--- 行数も並びも同じなら位置で突合する（いちばん確実）---
+    '--- 0) 行数も並びも同じなら位置で突合する（いちばん確実）---
     positional = (recOld.Count = recNew.Count)
     If positional Then
         For i = 1 To recOld.Count
@@ -472,68 +483,166 @@ Private Function MatchNewPrices(ByVal recOld As Collection, ByVal recNew As Coll
     If positional Then
         For i = 1 To recOld.Count
             newTanka(i) = CDbl(recNew(i)(R_TANKA))
+            lvlArr(i) = ML_POS
         Next i
     Else
-        '--- ずれているので、単価表部と内訳部を分けて、同じキーの出現順に突合する ---
-        '    Gコードの代価表は「単価表部の見出し行」と「内訳の参照行」で
-        '    コード・名称・規格・単位がまったく同じになる。
-        '    見出し行には単価が入っていないので、部を分けずに先着順で突合すると
-        '    内訳のGコード行の新単価が0になってしまう（空欄に見える）。
-        Set dNew = CreateObject("Scripting.Dictionary")
-        For i = 1 To recNew.Count
-            k = SectionKey(recNew(i), i, xNew)
-            If Not dNew.Exists(k) Then dNew.Add k, New Collection
-            Set q = dNew(k)
-            q.Add i
-        Next i
+        '--- A) 部ごとに行数が同じなら、その部は位置で突合する ---
+        '    単価適用日を変えると代価表（単価表部）の構成だけ変わることが多く、
+        '    内訳部は行がそのまま残る。部を分けて位置で突合すればここが拾える。
+        MatchSectionPos recOld, recNew, 1, xOld - 1, 1, xNew - 1, newTanka, lvlArr, usedNew
+        MatchSectionPos recOld, recNew, xOld, recOld.Count, xNew, recNew.Count, _
+                        newTanka, lvlArr, usedNew
 
-        For i = 1 To recOld.Count
-            rec = recOld(i)
-            k = SectionKey(rec, i, xOld)
-            idx = 0
-            If dNew.Exists(k) Then
-                Set q = dNew(k)
-                If q.Count > 0 Then
-                    idx = CLng(q(1))
-                    q.Remove 1
-                End If
-            End If
-
-            If idx > 0 Then
-                newTanka(i) = CDbl(recNew(idx)(R_TANKA))
-            Else
-                newTanka(i) = CDbl(rec(R_TANKA))
-                If IsDetailLevel(CStr(rec(R_LEVEL))) And i >= xOld Then miss = miss + 1
-            End If
-        Next i
-
-        msg = "旧CSVと新CSVで行がずれていたため、単価表部と内訳部に分けて" & _
-              "コード・名称・規格・単位の出現順で突合しました。"
-        If miss > 0 Then
-            msg = msg & vbCrLf & "　新単価が見つからず旧単価を据え置いた明細：" & miss & " 行"
-        End If
+        '--- B〜E) 残った行は、キーをだんだん緩めて突合する ---
+        MatchPass recOld, recNew, xOld, xNew, ML_KEY1, newTanka, lvlArr, usedNew
+        MatchPass recOld, recNew, xOld, xNew, ML_KEY2, newTanka, lvlArr, usedNew
+        MatchPass recOld, recNew, xOld, xNew, ML_KEY3, newTanka, lvlArr, usedNew
+        MatchPass recOld, recNew, xOld, xNew, ML_KEY4, newTanka, lvlArr, usedNew
     End If
 
-    '--- 新単価が0で旧単価が0でない明細は、旧単価を据え置いて印を付ける ---
-    '    0のままだとExcelのゼロ値非表示で空欄に見えて気付けないため
+    '--- 突合できなかった明細は旧単価を据え置く（印はWriteRowが付ける）---
     For i = 1 To recOld.Count
-        rec = recOld(i)
-        If IsDetailLevel(CStr(rec(R_LEVEL))) And i >= xOld Then
-            If newTanka(i) = 0 And CDbl(rec(R_TANKA)) <> 0 Then
-                newTanka(i) = CDbl(rec(R_TANKA))
-                heldOld(i) = True
-                zeroHold = zeroHold + 1
+        If lvlArr(i) = ML_NONE Then
+            newTanka(i) = CDbl(recOld(i)(R_TANKA))
+            If IsDetailLevel(CStr(recOld(i)(R_LEVEL))) And i >= xOld Then nMiss = nMiss + 1
+        ElseIf lvlArr(i) >= ML_KEY2 Then
+            If IsDetailLevel(CStr(recOld(i)(R_LEVEL))) And i >= xOld Then nLoose = nLoose + 1
+        End If
+    Next i
+
+    '--- 新単価が0で旧単価が0でない明細も、旧単価を据え置いて印を付ける ---
+    For i = 1 To recOld.Count
+        If IsDetailLevel(CStr(recOld(i)(R_LEVEL))) And i >= xOld Then
+            If newTanka(i) = 0 And CDbl(recOld(i)(R_TANKA)) <> 0 Then
+                newTanka(i) = CDbl(recOld(i)(R_TANKA))
+                lvlArr(i) = ML_ZERO
+                nZero = nZero + 1
             End If
         End If
     Next i
 
-    If zeroHold > 0 Then
+    If Not positional Then
+        msg = "旧CSVと新CSVで行がずれていたため、単価表部と内訳部に分けて" & _
+              "位置とキーで突合しました。"
+    End If
+    If nLoose > 0 Then
         msg = msg & IIf(msg = "", "", vbCrLf) & _
-              "★ 新単価が0だったため旧単価を据え置いた明細：" & zeroHold & " 行" & vbCrLf & _
+              "★ 規格や単位が一致せず、ゆるい条件で新単価を当てた明細：" & nLoose & " 行" & vbCrLf & _
+              "　 J列を黄色にし、摘要に突合条件を入れています。確認してください。"
+    End If
+    If nMiss > 0 Then
+        msg = msg & IIf(msg = "", "", vbCrLf) & _
+              "★ 新単価が見つからず旧単価を据え置いた明細：" & nMiss & " 行" & vbCrLf & _
               "　 J列を赤くし、摘要に「★新単価なし」と入れています。確認してください。"
+    End If
+    If nZero > 0 Then
+        msg = msg & IIf(msg = "", "", vbCrLf) & _
+              "★ 新単価が0だったため旧単価を据え置いた明細：" & nZero & " 行" & vbCrLf & _
+              "　 J列を赤くし、摘要に「★新単価が0」と入れています。確認してください。"
     End If
 
     MatchNewPrices = msg
+End Function
+
+
+'--------------------------------------------------------------
+' 部（単価表部／内訳部）の中で、行数が同じなら位置で突合する
+'   9割以上のキーが一致していなければ並びが違うとみなして使わない
+'--------------------------------------------------------------
+Private Sub MatchSectionPos(ByVal recOld As Collection, ByVal recNew As Collection, _
+                            ByVal o1 As Long, ByVal o2 As Long, _
+                            ByVal n1 As Long, ByVal n2 As Long, _
+                            ByRef newTanka() As Double, ByRef lvlArr() As Long, _
+                            ByRef usedNew() As Boolean)
+    Dim i As Long, cnt As Long, same As Long
+
+    If o1 < 1 Or n1 < 1 Then Exit Sub
+    If o2 < o1 Or n2 < n1 Then Exit Sub
+    If (o2 - o1) <> (n2 - n1) Then Exit Sub
+
+    cnt = o2 - o1 + 1
+    For i = 0 To cnt - 1
+        If RecKey(recOld(o1 + i)) = RecKey(recNew(n1 + i)) Then same = same + 1
+    Next i
+    If same * 10 < cnt * 9 Then Exit Sub
+
+    For i = 0 To cnt - 1
+        If lvlArr(o1 + i) = ML_NONE Then
+            newTanka(o1 + i) = CDbl(recNew(n1 + i)(R_TANKA))
+            lvlArr(o1 + i) = ML_SECT
+            usedNew(n1 + i) = True
+        End If
+    Next i
+End Sub
+
+
+'--------------------------------------------------------------
+' まだ突合できていない行を、指定のキーで突合する（同じキーは出現順）
+'--------------------------------------------------------------
+Private Sub MatchPass(ByVal recOld As Collection, ByVal recNew As Collection, _
+                      ByVal xOld As Long, ByVal xNew As Long, ByVal level As Long, _
+                      ByRef newTanka() As Double, ByRef lvlArr() As Long, _
+                      ByRef usedNew() As Boolean)
+    Dim d As Object, q As Collection
+    Dim i As Long, idx As Long
+    Dim k As String
+
+    Set d = CreateObject("Scripting.Dictionary")
+
+    For i = 1 To recNew.Count
+        If Not usedNew(i) Then
+            k = LvlKey(recNew(i), i, xNew, level)
+            If k <> "" Then
+                If Not d.Exists(k) Then d.Add k, New Collection
+                Set q = d(k)
+                q.Add i
+            End If
+        End If
+    Next i
+
+    For i = 1 To recOld.Count
+        If lvlArr(i) = ML_NONE Then
+            k = LvlKey(recOld(i), i, xOld, level)
+            If k <> "" Then
+                If d.Exists(k) Then
+                    Set q = d(k)
+                    If q.Count > 0 Then
+                        idx = CLng(q(1))
+                        q.Remove 1
+                        usedNew(idx) = True
+                        newTanka(i) = CDbl(recNew(idx)(R_TANKA))
+                        lvlArr(i) = level
+                    End If
+                End If
+            End If
+        End If
+    Next i
+End Sub
+
+
+'--------------------------------------------------------------
+' 突合キー（部の区別付き）。レベルを下げるほど条件がゆるくなる
+'--------------------------------------------------------------
+Private Function LvlKey(ByVal rec As Variant, ByVal idx As Long, ByVal firstX As Long, _
+                        ByVal level As Long) As String
+    Dim p As String, cd As String
+
+    cd = NormText(CStr(rec(R_CODE)))
+    p = IIf(idx < firstX, "T|", "N|")
+
+    Select Case level
+        Case ML_KEY1
+            LvlKey = p & cd & "|" & NormText(CStr(rec(R_NAME))) & "|" & _
+                     NormText(CStr(rec(R_KIKAKU))) & "|" & NormText(CStr(rec(R_TANI)))
+        Case ML_KEY2
+            LvlKey = p & cd & "|" & NormText(CStr(rec(R_NAME))) & "|" & _
+                     NormText(CStr(rec(R_TANI)))
+        Case ML_KEY3
+            LvlKey = p & cd & "|" & NormText(CStr(rec(R_NAME)))
+        Case ML_KEY4
+            ' コードだけ。コードが無い行では使わない
+            If cd <> "" Then LvlKey = p & cd
+    End Select
 End Function
 
 
@@ -553,20 +662,24 @@ End Function
 
 
 '--------------------------------------------------------------
-' 突合キーに「どの部か」を付ける
-'   T＝単価表部（X1000より前）／N＝内訳部・諸経費部（X1000以降）
-'--------------------------------------------------------------
-Private Function SectionKey(ByVal rec As Variant, ByVal idx As Long, _
-                            ByVal firstX As Long) As String
-    SectionKey = IIf(idx < firstX, "T|", "N|") & RecKey(rec)
-End Function
-
-
-'--------------------------------------------------------------
 ' 明細行（単価と数量を持つ行）かどうか
 '--------------------------------------------------------------
 Public Function IsDetailLevel(ByVal lvl As String) As Boolean
     IsDetailLevel = (LevelNum(lvl) = 9)
+End Function
+
+
+Public Function MatchLvlName(ByVal level As Long) As String
+    Select Case level
+        Case ML_POS:  MatchLvlName = "行の位置"
+        Case ML_SECT: MatchLvlName = "部ごとの行の位置"
+        Case ML_KEY1: MatchLvlName = "コード＋名称＋規格＋単位"
+        Case ML_KEY2: MatchLvlName = "コード＋名称＋単位"
+        Case ML_KEY3: MatchLvlName = "コード＋名称"
+        Case ML_KEY4: MatchLvlName = "コードだけ"
+        Case ML_ZERO: MatchLvlName = "新単価が0"
+        Case Else:    MatchLvlName = "突合できず"
+    End Select
 End Function
 
 
@@ -678,7 +791,7 @@ End Sub
 '==============================================================
 Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Variant, _
                      ByVal tankaNew As Double, ByVal lvlNum As Long, ByVal lvl As String, _
-                     ByVal heldOld As Boolean)
+                     ByVal matchLvl As Long)
     ws.Cells(r, SC_CODE).Value = rec(R_CODE)
     ws.Cells(r, SC_TEKIYO).Value = rec(R_TEKIYO)
 
@@ -715,11 +828,21 @@ Private Sub WriteRow(ByVal ws As Worksheet, ByVal r As Long, ByVal rec As Varian
         ws.Cells(r, SC_Q_ALL).Value = rec(R_SURYO)
         ws.Cells(r, SC_TANI).Value = rec(R_TANI)
         WriteDetailFormulas ws, r
-        ' 新単価が見つからず旧単価を据え置いた行は目で分かるようにする
-        If heldOld Then
-            ws.Cells(r, SC_TANKA_N).Interior.Color = RGB(255, 199, 206)
-            ws.Cells(r, SC_TEKIYO).Value = Trim$(CStr(ws.Cells(r, SC_TEKIYO).Value) & " ★新単価なし")
-        End If
+        ' 新単価の突合が確実でなかった行は、目で分かるようにする
+        Select Case matchLvl
+            Case ML_NONE
+                ws.Cells(r, SC_TANKA_N).Interior.Color = RGB(255, 199, 206)      ' 薄い赤
+                ws.Cells(r, SC_TEKIYO).Value = Trim$(CStr(ws.Cells(r, SC_TEKIYO).Value) & _
+                    " ★新単価なし（旧単価を据置）")
+            Case ML_ZERO
+                ws.Cells(r, SC_TANKA_N).Interior.Color = RGB(255, 199, 206)      ' 薄い赤
+                ws.Cells(r, SC_TEKIYO).Value = Trim$(CStr(ws.Cells(r, SC_TEKIYO).Value) & _
+                    " ★新単価が0（旧単価を据置）")
+            Case ML_KEY2, ML_KEY3, ML_KEY4
+                ws.Cells(r, SC_TANKA_N).Interior.Color = RGB(255, 235, 156)      ' 薄い黄
+                ws.Cells(r, SC_TEKIYO).Value = Trim$(CStr(ws.Cells(r, SC_TEKIYO).Value) & _
+                    " ★新単価は" & MatchLvlName(matchLvl) & "で突合")
+        End Select
         ' 採用しなかった側の数量が0なら、この設計で追加された工種とみなす
         If mAutoShin Then
             If CDbl(rec(R_SURYO2)) = 0 And CDbl(rec(R_SURYO)) <> 0 Then
