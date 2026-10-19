@@ -32,7 +32,7 @@ Public Const SC_ZKUBUN   As Long = 18   ' R  区分（経費計算部のZコー�
 Public Const SC_A_ALL    As Long = 19   ' S  スライド前・全体      =K*I
 Public Const SC_A_DONE   As Long = 20   ' T  スライド前・出来形    =L*I
 Public Const SC_A_REST   As Long = 21   ' U  スライド前・残工事    =M*I
-Public Const SC_B_ALL    As Long = 22   ' V  スライド後・全体      =K*J
+Public Const SC_B_ALL    As Long = 22   ' V  スライド後・全体      =T+W（出来形は旧単価・残工事は新単価）
 Public Const SC_B_REST   As Long = 23   ' W  スライド後・残工事    =M*J
 Public Const SC_N_ALL    As Long = 24   ' X  新工種抜き・全体      =IF(Q="〇",0,S)
 Public Const SC_N_DONE   As Long = 25   ' Y  新工種抜き・出来形    =IF(Q="〇",0,T)
@@ -42,7 +42,7 @@ Public Const SC_SHA_N    As Long = 28   ' AB 処分費額（全数量分）ス�
 Public Const SC_SA_ALL   As Long = 29   ' AC 処分費額 前・全体
 Public Const SC_SA_DONE  As Long = 30   ' AD 処分費額 前・出来形
 Public Const SC_SA_REST  As Long = 31   ' AE 処分費額 前・残工事
-Public Const SC_SB_ALL   As Long = 32   ' AF 処分費額 後・全体
+Public Const SC_SB_ALL   As Long = 32   ' AF 処分費額 後・全体   =AD+AG（出来形は旧単価・残工事は新単価）
 Public Const SC_SB_REST  As Long = 33   ' AG 処分費額 後・残工事
 Public Const SC_SN_ALL   As Long = 34   ' AH 処分費額 新抜き・全体
 Public Const SC_SN_DONE  As Long = 35   ' AI 処分費額 新抜き・出来形
@@ -635,9 +635,9 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(5, SC_A_ALL).Value = "全体"
     ws.Cells(5, SC_A_DONE).Value = "出来形"
     ws.Cells(5, SC_A_REST).Value = "残工事"
-    ws.Cells(3, SC_B_ALL).Value = "スライド後（新単価）"
-    ws.Cells(5, SC_B_ALL).Value = "全体"
-    ws.Cells(5, SC_B_REST).Value = "残工事"
+    ws.Cells(3, SC_B_ALL).Value = "スライド後（出来形＝旧単価／残工事＝新単価）"
+    ws.Cells(5, SC_B_ALL).Value = "全体" & vbLf & "＝出来形＋残工事"
+    ws.Cells(5, SC_B_REST).Value = "残工事" & vbLf & "（新単価）"
     If gUseShin Then
         ws.Cells(3, SC_N_ALL).Value = "新工種抜き"
         ws.Cells(5, SC_N_ALL).Value = "全体"
@@ -651,7 +651,7 @@ Private Sub WriteHeader(ByVal ws As Worksheet, ByVal cfg As Object)
     ws.Cells(5, SC_SA_ALL).Value = "前・全体"
     ws.Cells(5, SC_SA_DONE).Value = "前・出来形"
     ws.Cells(5, SC_SA_REST).Value = "前・残工事"
-    ws.Cells(5, SC_SB_ALL).Value = "後・全体"
+    ws.Cells(5, SC_SB_ALL).Value = "後・全体" & vbLf & "＝前出来形＋後残工事"
     ws.Cells(5, SC_SB_REST).Value = "後・残工事"
     If gUseShin Then
         ws.Cells(5, SC_SN_ALL).Value = "新抜き・全体"
@@ -735,7 +735,7 @@ End Sub
 Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     Dim aI As String, aJ As String, aK As String, aL As String, aM As String
     Dim aO As String, aQ As String, aSO As String, aSN As String
-    Dim aAll As String, aBall As String
+    Dim aAll As String, aBnew As String
     Dim shO As String, shN As String
 
     aI = ws.Cells(r, SC_TANKA_O).Address(False, False)
@@ -748,15 +748,21 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     aSO = ws.Cells(r, SC_SHA_O).Address(False, False)
     aSN = ws.Cells(r, SC_SHA_N).Address(False, False)
     aAll = ws.Cells(r, SC_A_ALL).Address(False, False)
-    aBall = ws.Cells(r, SC_B_ALL).Address(False, False)
+    ' 処分費額が未入力のときの既定値に使う「全数量×新単価」。
+    ' V列（スライド後・全体）は出来形＝旧単価が混ざるので、ここでは使えない
+    aBnew = "ROUNDDOWN(" & aK & "*" & aJ & ",0)"
 
     ' 金額は 単価×数量 を1円未満切り捨て
     ws.Cells(r, SC_Q_REST).Formula = "=" & aK & "-" & aL
     ws.Cells(r, SC_A_ALL).Formula = "=ROUNDDOWN(" & aK & "*" & aI & ",0)"
     ws.Cells(r, SC_A_DONE).Formula = "=ROUNDDOWN(" & aL & "*" & aI & ",0)"
     ws.Cells(r, SC_A_REST).Formula = "=ROUNDDOWN(" & aM & "*" & aI & ",0)"
-    ws.Cells(r, SC_B_ALL).Formula = "=ROUNDDOWN(" & aK & "*" & aJ & ",0)"
     ws.Cells(r, SC_B_REST).Formula = "=ROUNDDOWN(" & aM & "*" & aJ & ",0)"
+    ' スライド後の全体は「出来形は旧単価・残工事は新単価」。
+    '   出来高はもう払い終わっているので旧単価のまま、残工事だけ新単価にする。
+    '   全数量×新単価にすると、出来高の分まで新単価で払う形になってしまう。
+    ws.Cells(r, SC_B_ALL).Formula = "=" & ws.Cells(r, SC_A_DONE).Address(False, False) & _
+        "+" & ws.Cells(r, SC_B_REST).Address(False, False)
     ' 新工種抜き：新工種〇の行を0にする
     If gUseShin Then
         ws.Cells(r, SC_N_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & aAll & ")"
@@ -767,7 +773,7 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
     ' 処分費額：全数量に対する金額を手入力し、出来形・残工事へは数量比で割り振る
     ' 未入力ならその行の金額を全額 処分費とみなす
     shO = "IF(" & aSO & "=""""," & aAll & "," & aSO & ")"
-    shN = "IF(" & aSN & "="""",IF(" & aSO & "=""""," & aBall & "," & aSO & ")," & aSN & ")"
+    shN = "IF(" & aSN & "="""",IF(" & aSO & "=""""," & aBnew & "," & aSO & ")," & aSN & ")"
 
     ' 処分費額も数量比で割り振ったあと1円未満切り捨て
     ws.Cells(r, SC_SA_ALL).Formula = "=IF(" & aO & "<>""〇"",0,ROUNDDOWN(" & shO & ",0))"
@@ -775,9 +781,11 @@ Public Sub WriteDetailFormulas(ByVal ws As Worksheet, ByVal r As Long)
         shO & "*" & aL & "/" & aK & ",0)))"
     ws.Cells(r, SC_SA_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0,ROUNDDOWN(" & _
         shO & "*" & aM & "/" & aK & ",0)))"
-    ws.Cells(r, SC_SB_ALL).Formula = "=IF(" & aO & "<>""〇"",0,ROUNDDOWN(" & shN & ",0))"
     ws.Cells(r, SC_SB_REST).Formula = "=IF(" & aO & "<>""〇"",0,IF(" & aK & "=0,0,ROUNDDOWN(" & _
         shN & "*" & aM & "/" & aK & ",0)))"
+    ' 処分費額も同じ考え方。後・全体＝前・出来形＋後・残工事
+    ws.Cells(r, SC_SB_ALL).Formula = "=" & ws.Cells(r, SC_SA_DONE).Address(False, False) & _
+        "+" & ws.Cells(r, SC_SB_REST).Address(False, False)
     If gUseShin Then
         ws.Cells(r, SC_SN_ALL).Formula = "=IF(" & aQ & "=""〇"",0," & _
             ws.Cells(r, SC_SA_ALL).Address(False, False) & ")"
