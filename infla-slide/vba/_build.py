@@ -4,7 +4,6 @@ MODS = [('M00_Main.bas','メイン処理・CSV読み込み・2本の突合'),
         ('M20_Slide.bas','設定シート生成・スライド計算表（明細＋経費計算）'),
         ('M40_Chosho.bas','スライド調書（様式4-2号）'),
         ('M50_Tokushu.bas','特殊集計区分一覧表CSVから処分費・管材費を自動入力'),
-        ('M90_SampleData.bas','動作確認用サンプルCSV生成'),
         ('M92_CsvCheck.bas','CSVの構造チェック（診断用）')]
 PROC = re.compile(r'^\s*(?:Public |Private |Friend )?(?:Static )?(?:Sub|Function)\s')
 
@@ -46,7 +45,7 @@ def build(outfile, useShin):
       "'   ・特殊集計区分CSV取込 … 特殊集計区分一覧表CSVから処分費〇・管材費〇・処分費額を入れる",
       "'   ・特殊集計区分CSV構造チェック … そのCSVの列の並びだけを書き出す（金額は出しません）",
       "'   ・CSV構造チェック … CSVのコードと名称だけを書き出す（金額は出しません）",
-      "'   ・テスト用CSV作成 … 動作確認用のサンプルCSVを2本作る", "'",
+      "'",
       "' 参照設定の追加は不要です（すべて CreateObject の遅延バインディング）。",
       "'"+'='*62, 'Option Explicit', '',
       "'"+'='*62, "' 宣言部", "'"+'='*62] + decls + bodies
