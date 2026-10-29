@@ -126,7 +126,8 @@ def list_positions() -> None:
 # ──────────────────────────────────────────
 
 def _fetch_data(tickers: List[str], high_period: int) -> Dict[str, pd.DataFrame]:
-    end = date.today()
+    # yfinance の end は当日を含まないため +1 日（UTC で動く Actions でも直近の終値を取る）
+    end = date.today() + timedelta(days=1)
     start = end - timedelta(days=int(high_period * 1.5) + 30)
 
     import warnings, contextlib, io
