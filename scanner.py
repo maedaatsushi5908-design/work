@@ -10,6 +10,9 @@ kenmo 新高値ブレイク投資法 デイリースキャナー
     # スキャン結果を LINE / Discord / メールに通知
     python scanner.py --notify
 
+    # 株価とシグナルを data/ に蓄積（通知なし）
+    python scanner.py --save-data
+
     # ポジションを追加（買った後に記録）
     python scanner.py add --ticker 7203.T --price 2500 --shares 100
 
@@ -40,6 +43,7 @@ import pandas as pd
 from config import DEFAULT_TICKERS
 
 POSITIONS_FILE = Path("positions.json")
+DATA_DIR = Path("data")
 
 
 # ──────────────────────────────────────────
@@ -279,6 +283,44 @@ class ScanResult:
 
 
 # ──────────────────────────────────────────
+# データ蓄積
+# ──────────────────────────────────────────
+
+def _merge_csv(path: Path, new: pd.DataFrame, keys: List[str]) -> int:
+    """既存 CSV と結合し、keys が重複する行は新しい方を残して保存する。行数を返す。"""
+    if path.exists():
+        new = pd.concat([pd.read_csv(path, dtype={"date": str, "signal_date": str}), new])
+    merged = new.drop_duplicates(subset=keys, keep="last").sort_values(keys)
+    merged.to_csv(path, index=False)
+    return len(merged)
+
+
+def save_data(data: Dict[str, pd.DataFrame], result: ScanResult) -> None:
+    """取得した日足とエントリー候補を data/ に追記保存する。"""
+    DATA_DIR.mkdir(exist_ok=True)
+
+    frames = []
+    for ticker, df in data.items():
+        d = df.reset_index()
+        d = d.rename(columns={d.columns[0]: "date"})
+        d["date"] = pd.to_datetime(d["date"]).dt.strftime("%Y-%m-%d")
+        d.insert(1, "ticker", ticker)
+        frames.append(d[["date", "ticker", "Open", "High", "Low", "Close", "Volume"]])
+    if frames:
+        prices = pd.concat(frames).round({"Open": 2, "High": 2, "Low": 2, "Close": 2})
+        n = _merge_csv(DATA_DIR / "prices.csv", prices, ["date", "ticker"])
+        print(f"  💾 data/prices.csv: {n:,} 行")
+
+    if result.entry_candidates:
+        sig = pd.DataFrame(result.entry_candidates)
+        sig["signal_date"] = sig["signal_date"].str.replace("/", "-")
+        sig = sig.round({"close": 2, "prev_high": 2, "breakout_pct": 4, "stop_price": 2})
+        sig.insert(0, "scan_date", result.today.isoformat())
+        n = _merge_csv(DATA_DIR / "signals.csv", sig, ["signal_date", "ticker"])
+        print(f"  💾 data/signals.csv: {n:,} 行")
+
+
+# ──────────────────────────────────────────
 # スキャン本体
 # ──────────────────────────────────────────
 
@@ -289,6 +331,7 @@ def run_scan(
     trailing_stop_pct: float,
     warn_trailing_pct: float,
     notify: bool = False,
+    save: bool = False,
 ) -> ScanResult:
     result = ScanResult(today=date.today())
     positions = load_positions()
@@ -383,6 +426,9 @@ def run_scan(
     # ── 出力 ──────────────────────────────────────────────────
     print(result.to_console())
 
+    if save:
+        save_data(data, result)
+
     if notify:
         from notify import send_all
         msg = result.to_notify_message()
@@ -426,6 +472,7 @@ def main():
     parser.add_argument("--trailing", type=float, default=-0.15)
     parser.add_argument("--warn-trailing", type=float, default=-0.10)
     parser.add_argument("--notify", action="store_true", help="スキャン後に通知を送る")
+    parser.add_argument("--save-data", action="store_true", help="株価とシグナルを data/ に蓄積する")
 
     args = parser.parse_args()
 
@@ -443,6 +490,7 @@ def main():
             trailing_stop_pct=args.trailing,
             warn_trailing_pct=args.warn_trailing,
             notify=args.notify,
+            save=args.save_data,
         )
 
 
