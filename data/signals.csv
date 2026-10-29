@@ -1,0 +1,2 @@
+scan_date,ticker,signal_date,close,prev_high,breakout_pct,stop_price
+2026-10-29,2002.T,2026-10-29,2153.0,2139.14,0.0065,1980.76
