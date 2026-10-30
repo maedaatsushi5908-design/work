@@ -1,0 +1,39 @@
+name: 週明け夜間リターン記録
+
+on:
+  # 平日 16:00 JST (07:00 UTC) に実行。週の2営業日目の始値が出た日に記録される
+  schedule:
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install yfinance pandas numpy
+
+      - name: 夜間リターンを記録
+        run: python overnight_tracker/track.py
+
+      - name: データをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add overnight_tracker/
+          git diff --cached --quiet && exit 0
+          git commit -m "週明け夜間リターン記録 $(TZ=Asia/Tokyo date +%Y-%m-%d)"
+          git pull --rebase
+          git push
